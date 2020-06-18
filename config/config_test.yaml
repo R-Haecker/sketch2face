@@ -9,17 +9,17 @@ integrations:
 datasets:
   train: data.data_loader.dataset.DatasetTrain
   validation: data.data_loader.dataset.DatasetEval
-
+# documents/src/20_ss/deep_vision/sketch2face/data/data_sets
 data:
-  data_root_face: /export/home/rhaecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/face/
-  data_root_sketch: /export/home/rhaecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/sketche/
+  data_root_face: /home/haecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/img_align_celeba/
+  data_root_sketch: /home/haecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/full_numpy_bitmap_face.npy
   shuffle: True
   validation_split: 0.1
   test_split: 0.1
   transform:
     resolution: 64
-    mirrow: True
-    crop_offset: 5
+    mirrow: False
+    crop_offset: 0
 
 # Meta Info
 explanation: "Test only for debugging."
@@ -34,15 +34,10 @@ num_epochs: 2
 
 losses:
   reconstruction_loss: "L2"
-  KLD_loss:
-    start_step: 60000
-    width: 500
-    amplitude: 0.001
 
 # Model info
 activation_function: "ReLU"
 learning_rate: 0.0001
-weight_decay: 0.000001 
 #log_freq: 2000
 
 variational:

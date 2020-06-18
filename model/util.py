@@ -2,20 +2,24 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-def get_tensor_shapes(config, encoder = True):
+def get_tensor_shapes(config, encoder = True, sketch = True):
     """This function calculates the shape of a every tensor after an operation in the VAE_Model.        
     :return: A list of the shape of an tensors after every module.
     :rtype: List
     """        
     tensor_shapes = []
     # The first shape is specified in the config
-    tensor_shapes.append([3, config["data"]["transform"]["resolution"],config["data"]["transform"]["resolution"]])
+    first_channel = 1 if sketch else 3
+    tensor_shapes.append([first_channel, config["data"]["transform"]["resolution"],config["data"]["transform"]["resolution"]])
     # how many downsampling blow will we need
     n_blocks = int(np.round(np.log2(config["data"]["transform"]["resolution"])))
     # calculate the shape after a convolutuonal operation
     for i in range(0, n_blocks):
         spacial_res = tensor_shapes[i][-1]//2
-        channels = config["conv"]["n_channel_start"] if i==0 else np.min(tensor_shapes[i][0]*2 ,config["conv"]["n_channel_max"])
+        if i==0:
+            channels = config["conv"]["n_channel_start"]
+        else:
+            channels = np.minimum(tensor_shapes[i][0]*2, config["conv"]["n_channel_max"])
         if encoder and i == n_blocks - 1 and "variational" in config and "sigma" in config["variational"] and config["variational"]["sigma"]:
             # if variational with sigma we want to out put double the channel dim at last operation for mu and sigma
             tensor_shapes.append([channels * 2, spacial_res, spacial_res])
@@ -38,7 +42,7 @@ def test_config(config):
     assert "shuffle" in config["data"]
     assert "test_split" in config["data"]
     assert "transform" in config["data"]
-    assert "resolution" in config["transform"]
+    assert "resolution" in config["data"]["transform"]
     assert type(config["data"]["transform"]["resolution"]) == int, "Only use square face images with given int resolution"
     
     assert "activation_function" in config, "For this model you need to specify the activation function: possible options :{'ReLU, LeakyReLu, Sigmoid, LogSigmoid, Tanh, SoftMax'}"

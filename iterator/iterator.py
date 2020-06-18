@@ -19,23 +19,20 @@ from iterator.util import (
 class Iterator(TemplateIterator):
     def __init__(self, config, root, model, *args, **kwargs):
         super().__init__(config, root, model, *args, **kwargs)
+        self.logger = get_logger("Iterator")
         # export to the right gpu if specified in the config
         self.device = self.set_gpu()
+        self.logger.debug(f"Model will pushed to the device: {self.device}")
         # get the config and the logger
         self.config = config
         self.set_random_state()
         # Config will be tested inside the Model class even for the iterator
-        self.logger = get_logger("Iterator")
         # Log the architecture of the model
         self.logger.debug(f"{model}")
         self.vae = model
         self.optimizer = torch.optim.Adam(self.vae.parameters(), lr=self.config["learning_rate"])# , betas=(self.config["beta1"], 0.999), weight_decay=self.config["weight_decay"])
         self.vae.to(self.device)
 
-        if "variational" in self.config:
-            # get the offset for the sigmoid regulator for the variational part of the loss 
-            self.x_offset_KLD = self.offset_KLD_weight()
-    
     def set_random_state(self):
         np.random.seed(self.config["random_seed"])
         torch.random.manual_seed(self.config["random_seed"])
@@ -73,14 +70,16 @@ class Iterator(TemplateIterator):
     def step_op(self, model, **kwargs):
         '''This function will be called every step in the training.'''
         # get inputs
-        input_images = kwargs["image"]
+        input_images = kwargs["image_face"]
         index_ = kwargs["index"]
         
+        self.logger.info("input images.shape: " + str(input_images.shape))
+
         input_images = torch.tensor(input_images).to(self.device)
 
         self.logger.debug("input_images.shape: " + str(input_images.shape))
         output_images = self.vae(input_images)
-        self.logger.debug("output.shape: " + str(recon_images.shape))
+        self.logger.debug("output.shape: " + str(output_images.shape))
         
         # create all losses
         loss = self.criterion(input_images, output_images)
@@ -93,7 +92,7 @@ class Iterator(TemplateIterator):
         def log_op():
             in_img = pt2np(input_images)
             out_img = pt2np(output_images)
-            loss_np = pt2np(loss) 
+            loss_np = loss.cpu().detach().numpy() 
             logs = {
                 "images": {
                     "input_images": in_img,
@@ -127,7 +126,6 @@ class Iterator(TemplateIterator):
         
     def set_gpu(self):
         """Move the model to device cuda if available and use the specified GPU"""
-        self.logger.debug(f"Model will pushed to the device: {self.device}")
         if "CUDA_VISIBLE_DEVICES" in self.config:
             if type(self.config["CUDA_VISIBLE_DEVICES"]) != str:
                 self.config["CUDA_VISIBLE_DEVICES"] = str(self.config["CUDA_VISIBLE_DEVICES"])

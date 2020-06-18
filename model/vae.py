@@ -10,7 +10,6 @@ import numpy as np
 
 from model.util import (
     get_tensor_shapes,
-    complete_config,
     get_act_func,
     test_config,
     set_random_state
@@ -18,8 +17,7 @@ from model.util import (
 from model.modules import (
     NormConv2d,
     Downsample,
-    Upsample,
-    One_sided_padding
+    Upsample
 )
 
 class VAE_Model(nn.Module):
@@ -35,8 +33,8 @@ class VAE_Model(nn.Module):
         self.config = config
         set_random_state(self.config)
         # calculate the tensor shapes throughout the network
-        self.tensor_shapes_enc = get_tensor_shapes(config)
-        self.tensor_shapes_dec = get_tensor_shapes(config, encoder = False)
+        self.tensor_shapes_enc = get_tensor_shapes(config, encoder = True, sketch = False)
+        self.tensor_shapes_dec = get_tensor_shapes(config, encoder = False, sketch=False)
         self.logger.info("tensor shapes: " + str(self.tensor_shapes_enc))
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # extract information from config
@@ -44,12 +42,13 @@ class VAE_Model(nn.Module):
         self.sigma       = bool(self.variational and "sigma" in self.config["variational"] and self.config["variational"]["sigma"])
         if self.variational:
             if self.sigma:
-                self.latent_dim = int(self.tensor_shapes[-1][-1]/2)
+                self.latent_dim = int(self.tensor_shapes_enc[-1][0]/2)
                 self.logger.debug("decoder shapes: " + str(self.tensor_shapes_dec))
             else:
-                self.latent_dim = self.tensor_shapes[-1][-1]
+                self.latent_dim = self.tensor_shapes_enc[-1][-1]
         else:
             self.latent_dim = self.config["conv"]["n_channel_max"]
+        self.logger.info("latnet dim: " + str(self.latent_dim))
         n_blocks = int(np.round(np.log2(config["data"]["transform"]["resolution"])))
         # get the activation function
         self.act_func = get_act_func(config, self.logger)
@@ -161,7 +160,7 @@ class VAE_Model_Encoder(nn.Module):
         for i in range(0, self.n_blocks):
             batch_norm = True if "batch_norm" in self.config and self.config["batch_norm"] else False
             conv_modules_list.append(
-            Downsample(channels = self.tensor_shapes[i][0], out_channels = self.tensor_shapes[i+1][0], kernel_size = self.config["conv"]["kernel_size"], stride = self.config["conv"]["stride"], padding = self.config["conv"]["padding"], conv_layer = self.conv, batch_norm = batch_norm) 
+            Downsample(channels = self.tensor_shapes[i][0], out_channels = self.tensor_shapes[i+1][0], kernel_size = 3, stride = 2, padding = 1, conv_layer = self.conv, batch_norm = batch_norm) 
             )    
             conv_modules_list.append(self.act_func)
             if "upsample" in self.config:
@@ -210,15 +209,15 @@ class VAE_Model_Decoder(nn.Module):
         for i in range(self.n_blocks, 0, -1):
             ba_norm = True if "batch_norm" in self.config and self.config["batch_norm"] and i != 1 else False
             upsample_modules_list.append(Upsample(in_channels = self.tensor_shapes[i][0], out_channels = self.tensor_shapes[i-1][0], conv_layer = self.conv, batch_norm = ba_norm))
+            self.logger.info('self.tensor_shapes[i-1][0]   ' + str(self.tensor_shapes[i-1][0]))
             if i != 1:
                 upsample_modules_list.append(self.act_func)
             else:
-                upsample_modules_list.append(nn.Sigmoid())
+                upsample_modules_list.append(nn.Tanh())
         return nn.Sequential(*upsample_modules_list)
 
     def forward(self, x):
-        if self.variaional:
-            x = x.reshape(-1,*self.tensor_shapes[-2])
+        x = x.reshape(-1,*self.tensor_shapes[-1])
         self.logger.info("Decoder first reshape to:" + str(x.shape))
         x = self.conv_seq(x)
         return x

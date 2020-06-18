@@ -57,7 +57,7 @@ class Dataset(DatasetMixin):
     def load_sketch_data(self, config):
         #load all sketch images
         data = np.load(self.data_root_sketch)
-        data = data.reshape((len(data), 28, 28))
+        data = data.reshape((len(data), 28, 28, 1))
         return data
 
     def get_data_roots(self, config):
@@ -137,7 +137,8 @@ class Dataset(DatasetMixin):
         return example
     
     def load_sketch_image(self, idx):
-        image = transforms.Normalize([0.5], [0.5])(transforms.ToTensor()(self.sketch_data[idx]))
+        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize([0.5], [0.5])])
+        image = transform(self.sketch_data[idx])
         return image
 
     def load_face_image(self, idx):
