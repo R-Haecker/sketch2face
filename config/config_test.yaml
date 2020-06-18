@@ -1,0 +1,66 @@
+# info for run
+code_root: null
+integrations:
+  wandb:
+    active: True
+    project: "Debug!"
+
+# Dataset info
+datasets:
+  train: data.dataset.DatasetTrain
+  validation: data.dataset.DatasetEval
+data_root: /export/home/rhaecker/documents/research-of-latent-representation/data/only_dir_light_some_camera_theta
+
+request_parameters: False
+request_pose: False
+request_tri: False
+validation_split: 0.1
+shuffle_dataset: True
+image_resolution: 64
+
+# Meta Info
+explanation: "Test only for debugging."
+debug_log_level: True
+#CUDA_VISIBLE_DEVICES: 8
+
+# Iterator info
+iterator: iterator.iterator.Iterator
+model: model.vae.VAE_Model
+batch_size: 10
+num_epochs: 2
+
+losses:
+  reconstruction_loss: "L2"
+  view_loss: "L1"
+  KLD_loss:
+    start_step: 60000
+    width: 500
+    amplitude: 0.001
+
+# Model info
+activation_function: "ReLU"
+learning_rate: 0.0001
+weight_decay: 0.000001 
+#log_freq: 2000
+
+#upsample: 'nearest'
+#conv_after_upsample: True
+#'linear', 'nearest', 'bicubic'
+
+#linear:
+#  latent_dim: 64
+variational:
+  sigma: True
+
+batch_norm: True
+# Conv parameters
+conv:
+  #n_blocks: 3
+  #kernel_size: 3
+  #stride: 2
+  #padding: 2
+  #conv_channels:
+  #  [3,32,32,64]
+  n_channel_start: 32
+  n_channel_max: 256
+  final_layer: True
