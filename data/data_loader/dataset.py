@@ -14,6 +14,7 @@ from skimage import io
 from PIL import Image
 import json
 
+
 class Dataset(DatasetMixin):
     def __init__(self, config, train=False):
         """Initialize the dataset to load training or validation images according to the config.yaml file. 
@@ -25,10 +26,10 @@ class Dataset(DatasetMixin):
         if "debug_log_level" in config and config["debug_log_level"]:
             LogSingleton.set_log_level("debug")
         self.logger = get_logger("Dataset")
-
+        self.config = config
         self.data_root_sketch, self.data_root_face = self.get_data_roots(config)
         # Load parameters from config
-        self.config = self.set_image_transform(config)
+        self.set_image_transform(config)
         self.set_random_state()
             
         self.sketch_data = self.load_sketch_data(config)
@@ -56,6 +57,7 @@ class Dataset(DatasetMixin):
     def load_sketch_data(self, config):
         #load all sketch images
         data = np.load(self.data_root_sketch)
+        data = data.reshape((len(data), 28, 28))
         return data
 
     def get_data_roots(self, config):
@@ -72,11 +74,11 @@ class Dataset(DatasetMixin):
     
     def set_image_transform(self, config):
         #mirror crop and resize depending on arguments of config
-        facewidth = Image.open(os.path.join(self.config['data']['data_root_face'], os.listdir(self.config['data']['data_root_face']))).size[0]
+        facewidth = Image.open(os.path.join(self.data_root_face, os.listdir(self.config['data']['data_root_face'])[0])).size[0]
         transformations = [transforms.CenterCrop(facewidth)]
         if "crop_offset" in config['data']['transform']:
-            transformations.append(transforms.RandomCrop(facewidth - config['data']['transform']['offest']))
-            self.logger.debug("Applying crops with offset {}".format(config['data']['transform']['offest']))
+            transformations.append(transforms.RandomCrop(facewidth - config['data']['transform']['crop_offset']))
+            self.logger.debug("Applying crops with offset {}".format(config['data']['transform']['crop_offset']))
         else: 
             self.logger.info("Images will not be cropped")
         if "mirror" in config['data']['transform'] and config['data']['transform']['mirror']:
@@ -90,14 +92,13 @@ class Dataset(DatasetMixin):
         else:
             self.logger.info("Images will not be resized")
         self.transform = transforms.Compose([*transformations, transforms.ToTensor(), transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))])
-        return config
 
     def set_random_state(self):
         if "random_seed" in self.config:
             np.random.seed(self.config["random_seed"])
             torch.random.manual_seed(self.config["random_seed"])
         else:
-            self.config["random_seed"] = np.random.randint(0,2**32-1)
+            self.config["random_seed"] = np.random.randint(0,2**30-1)
             np.random.seed(self.config["random_seed"])
             torch.random.manual_seed(self.config["random_seed"])
 
@@ -136,7 +137,7 @@ class Dataset(DatasetMixin):
         return example
     
     def load_sketch_image(self, idx):
-        image = transforms.ToTensor(self.sketch_data[idx])
+        image = transforms.Normalize([0.5], [0.5])(transforms.ToTensor()(self.sketch_data[idx]))
         return image
 
     def load_face_image(self, idx):
