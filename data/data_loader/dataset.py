@@ -25,40 +25,71 @@ class Dataset(DatasetMixin):
         if "debug_log_level" in config and config["debug_log_level"]:
             LogSingleton.set_log_level("debug")
         self.logger = get_logger("Dataset")
-    
-        self.data_root = self.get_data_root(config)
-        # Load parameters from config
-        self.config = self.set_image_res(config)
-        self.set_random_state()
-        
-        all_indices = self.load_all_indices()
-        # TODO shuffel indices choose vailadaion test and train indices. use config["shuffel_dataset"] or something 
-        self.indices = all_indices
-    
-    def load_all_indices(self):
-        # Load every indices from all images
-        all_indices = [int(s[17:-5]) for s in os.listdir(self.data_root + "/parameters/")]
-        return np.sort(all_indices)    
 
-    def get_data_root(self, config):
-        # Get the directory to the data
-        assert "data_root" in config, "You have to specify the directory to the data in the config.yaml file."
-        data_root = config["data_root"]
-        if "~" in data_root:
-            data_root = os.path.expanduser('~') + data_root[data_root.find("~")+1:]
-        self.logger.debug("data_root: " + str(data_root))
-        return data_root
+        self.data_root_sketch, self.data_root_face = self.get_data_roots(config)
+        # Load parameters from config
+        self.config = self.set_image_transform(config)
+        self.set_random_state()
+            
+        self.sketch_data = self.load_sketch_data(config)
+
+        self.sketch_indices = self.load_sketch_indices()
+        self.face_indices = self.load_face_indices()
+
+    def load_sketch_indices(self):
+        # Load indices of all sketch images
+        sketch_indices = np.arange(len(self.sketch_data))
+        if 'shuffle' in self.config['data'] and self.config['data']['shuffle']:
+            sketch_indices = np.random.permutation(sketch_indices)
+        return sketch_indices    
     
-    def set_image_res(self, config): 
-        # Transforming and resizing images
-        if "image_resolution" in config:    
-            if type(config["image_resolution"])!=list:
-                config["image_resolution"]=[config["image_resolution"], config["image_resolution"]]
-            self.transform = torchvision.transforms.Compose([transforms.Resize(size=(config["image_resolution"][0],config["image_resolution"][1])), transforms.ToTensor(), transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))])
-            self.logger.debug("Resizing images to " + str(config["image_resolution"]))
+    def load_face_indices(self):
+        # Load indices of all face images
+        face_indices = np.asarray([s.split(".")[0] for s in os.listdir(self.data_root_face)])
+        if 'shuffle' in self.config['data'] and self.config['data']['shuffle']:
+            face_indices = np.random.permutation(face_indices)
+        # Cut out images such that as many faces and sketches are left 
+        cut_start = np.random.randint(len(face_indices)-len(self.sketch_indices))
+        face_indices = face_indices[cut_start : cut_start+len(self.sketch_indices)]
+        return face_indices   
+
+    def load_sketch_data(self, config):
+        #load all sketch images
+        data = np.load(self.data_root_sketch)
+        return data
+
+    def get_data_roots(self, config):
+        # Get the directory to the data
+        data_roots = []
+        for dataset in ['sketch', 'face']:
+            assert "data_root_{}".format(dataset) in config['data'], "You have to specify the directory to the {} data in the config.yaml file.".format(dataset)
+            data_root = config["data"]["data_root_{}".format(dataset)]
+            if "~" in data_root:
+                data_root = os.path.expanduser('~') + data_root[data_root.find("~")+1:]
+            self.logger.debug("data_root_{}: ".format(dataset) + str(data_root))
+            data_roots.append(data_root)
+        return data_roots
+    
+    def set_image_transform(self, config):
+        #mirror crop and resize depending on arguments of config
+        facewidth = Image.open(os.path.join(self.config['data']['data_root_face'], os.listdir(self.config['data']['data_root_face']))).size[0]
+        transformations = [transforms.CenterCrop(facewidth)]
+        if "crop_offset" in config['data']['transform']:
+            transformations.append(transforms.RandomCrop(facewidth - config['data']['transform']['offest']))
+            self.logger.debug("Applying crops with offset {}".format(config['data']['transform']['offest']))
+        else: 
+            self.logger.info("Images will not be cropped")
+        if "mirror" in config['data']['transform'] and config['data']['transform']['mirror']:
+            transformations.append(transforms.RandomHorizontalFlip())
+            self.logger.debug("Applying random horizontal flip")
+        else: 
+            self.logger.info("Images will not be mirrored")
+        if "resolution" in config['data']['transform']:
+            transformations.append(transforms.Resize(config['data']['transform']['resolution']))
+            self.logger.debug("Resizing imgaes to {}".format(config['data']['transform']['resolution']))
         else:
-            self.logger.info("Images will not be resized! Original image resolution will be used.")
-            self.transform = torchvision.transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))])
+            self.logger.info("Images will not be resized")
+        self.transform = transforms.Compose([*transformations, transforms.ToTensor(), transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))])
         return config
 
     def set_random_state(self):
@@ -76,7 +107,7 @@ class Dataset(DatasetMixin):
         :return: [description]
         :rtype: [type]
         """
-        return len(self.indices)
+        return len(self.sketch_indices)
 
     def get_example(self, idx):
         """This member function loads and returns images in a dictionary according to the given index.
@@ -95,45 +126,25 @@ class Dataset(DatasetMixin):
             example["parameters"] = parameters
         '''
         example = {}
-        idx = self.indices[int(idx)]
+        sketch_idx = self.sketch_indices[int(idx)]
+        face_idx = self.face_indices[int(idx)]
         example["index"] = idx
         # Load image
-        image = self.load_image(idx)
-        example["image"] = image
+        example["image_sketch"] = self.load_sketch_image(sketch_idx)
+        example["image_face"] = self.load_face_image(face_idx)
         # Return example dictionary
         return example
-        
-    def load_image(self, idx):
-        image_path = os.path.join(self.data_root, "images/image_index_" + str(idx) + ".png")
-        image = Image.fromarray(io.imread(image_path))
+    
+    def load_sketch_image(self, idx):
+        image = transforms.ToTensor(self.sketch_data[idx])
+        return image
+
+    def load_face_image(self, idx):
+        image_path = os.path.join(self.data_root_face, str(idx) + ".jpg")
+        image = Image.open(image_path)
         if self.transform:
             image = self.transform(image)
         return image
-
-    def plot(self, image, name=None):
-        if type(image)==dict:
-            image = image["image"]
-        with torch.no_grad():
-            if image.shape[0]==self.config["batch_size"]:
-                te = torch.zeros(self.config["batch_size"],1024,1024,3,requires_grad=False)
-                te = torch.Tensor.permute(image,0,2,3,1)
-                plt.figure(figsize=(20,5))
-                te = (te/2+0.5).cpu()
-                te.detach().numpy()
-                plot_image = np.hstack(te.detach())
-            else:
-                te = torch.zeros(3,1024,1024,requires_grad=False)
-                te = torch.Tensor.permute(image,1,2,0)
-                te = (te/2+0.5).cpu()
-                te.detach().numpy()
-                plot_image = te
-            plt.imshow(plot_image)
-            if name!=None:
-                path_fig=self.data_root + "/figures/first_run_150e/"
-                if not os.path.isdir(path_fig):
-                    os.mkdir(path_fig)
-                #plt.savefig( path_fig + "figure_latent_dim_"+ str(self.latent_dim) +"_"+str(name)+".png")
-            plt.show()
 
 class DatasetTrain(Dataset):
     def __init__(self, config):
