@@ -10,9 +10,10 @@ datasets:
   train: data.data_loader.dataset.DatasetTrain
   validation: data.data_loader.dataset.DatasetEval
 
-  data:
-  data_root_face: /export/home/rhaecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/faces/
-  data_root_sketches: /export/home/rhaecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/sketches/
+data:
+  data_root_face: /export/home/rhaecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/face/
+  data_root_sketch: /export/home/rhaecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/sketche/
+  shuffle: True
   validation_split: 0.1
   test_split: 0.1
   transform:
@@ -51,5 +52,4 @@ variational:
 conv:
   n_channel_start: 32
   n_channel_max: 256
-  final_layer: True
 batch_norm: True
