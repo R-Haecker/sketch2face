@@ -1,0 +1,11 @@
+**test.py
+**/wandb
+**/logs
+*/logs
+.ipynb_checkpoints*
+**/__pycache__
+.vscode
+**.bin
+**.ddl
+**.asset
+data/data_sets/*
