@@ -1,3 +1,4 @@
+import json
 import torch
 import torchvision
 import torchvision.transforms as transforms
@@ -13,7 +14,7 @@ import os
 from skimage import io
 from PIL import Image
 import json
-
+import yaml
 
 class Dataset(DatasetMixin):
     def __init__(self, config, train=False):
@@ -27,80 +28,106 @@ class Dataset(DatasetMixin):
             LogSingleton.set_log_level("debug")
         self.logger = get_logger("Dataset")
         self.config = config
-        self.data_root_sketch, self.data_root_face = self.get_data_roots(config)
+        self.data_types = self.setup_data_types()
+        
+        self.data_roots = self.get_data_roots()
         # Load parameters from config
-        self.set_image_transform(config)
+        self.set_image_transforms()
         self.set_random_state()
-            
-        self.sketch_data = self.load_sketch_data(config)
+        
+        # Yet a bit sloppy but ok
+        self.sketch_data = self.load_sketch_data()
 
-        self.sketch_indices = self.load_sketch_indices()
-        self.face_indices = self.load_face_indices()
+        self.indices = self.load_indices(train)
 
-    def load_sketch_indices(self):
+    def setup_data_types(self):
+        # Reads from model type which data is needed
+        model_type = self.config['model_type']
+        data_types = []
+        if 'sketch' in model_type:
+            data_types.append('sketch')
+        if 'face' in model_type:
+            data_types.append('face')
+        return data_types
+
+    def load_indices(self, train):
         # Load indices of all sketch images
-        sketch_indices = np.arange(len(self.sketch_data))
-        if 'shuffle' in self.config['data'] and self.config['data']['shuffle']:
-            sketch_indices = np.random.permutation(sketch_indices)
-        return sketch_indices    
+        shuffle = 'shuffle' in self.config['data'] and self.config['data']['shuffle']
+        indices = {}
+        for data_type in self.data_types:
+            if data_type == 'sketch':
+                type_indices = np.arange(len(self.sketch_data))
+                if shuffle:
+                    type_indices = np.random.permutation(type_indices)
+            if data_type == 'face':
+                type_indices = np.asarray([s.split(".")[0] for s in os.listdir(self.data_roots['face'])])
+                if shuffle:
+                    type_indices = np.random.permutation(type_indices)
+                if 'sketch' in self.data_types:
+                    cut_start = np.random.randint(len(type_indices)-len(indices['sketch']))
+                    type_indices = type_indices[cut_start : cut_start+len(indices['sketch'])]
+            if train:
+                type_indices = type_indices[:int(len(type_indices)*(1-self.config['data']['validation_split']))]
+            else:
+                type_indices = type_indices[int(len(type_indices)*(1-self.config['data']['validation_split'])):]
+            indices[data_type] = type_indices
+        return indices
     
-    def load_face_indices(self):
-        # Load indices of all face images
-        face_indices = np.asarray([s.split(".")[0] for s in os.listdir(self.data_root_face)])
-        if 'shuffle' in self.config['data'] and self.config['data']['shuffle']:
-            face_indices = np.random.permutation(face_indices)
-        # Cut out images such that as many faces and sketches are left 
-        cut_start = np.random.randint(len(face_indices)-len(self.sketch_indices))
-        face_indices = face_indices[cut_start : cut_start+len(self.sketch_indices)]
-        return face_indices   
-
-    def load_sketch_data(self, config):
+    def load_sketch_data(self):
         #load all sketch images
-        data = np.load(self.data_root_sketch)
-        data = data.reshape((len(data), 28, 28, 1))
-        return data
+        if 'sketch' in self.data_types:
+            data = np.load(self.data_roots['sketch'])
+            data = data.reshape((len(data), 28, 28, 1))
+            return data
+        else:
+            return
 
-    def get_data_roots(self, config):
+    def get_data_roots(self):
         # Get the directory to the data
-        data_roots = []
-        for dataset in ['sketch', 'face']:
-            assert "data_root_{}".format(dataset) in config['data'], "You have to specify the directory to the {} data in the config.yaml file.".format(dataset)
-            data_root = config["data"]["data_root_{}".format(dataset)]
+        data_roots = {}
+        for data_type in self.data_types:
+            assert "data_root_{}".format(data_type) in self.config['data'], "You have to specify the directory to the {} data in the config.yaml file.".format(data_type)
+            data_root = self.config["data"]["data_root_{}".format(data_type)]
             if "~" in data_root:
                 data_root = os.path.expanduser('~') + data_root[data_root.find("~")+1:]
-            self.logger.debug("data_root_{}: ".format(dataset) + str(data_root))
-            data_roots.append(data_root)
+            self.logger.debug("data_root_{}: ".format(data_type) + str(data_root))
+            data_roots[data_type] = data_root
         return data_roots
     
-    def set_image_transform(self, config):
+    def set_image_transforms(self):
         #mirror crop and resize depending on arguments of config
-        facewidth = Image.open(os.path.join(self.data_root_face, os.listdir(self.config['data']['data_root_face'])[0])).size[0]
-        transformations = [transforms.CenterCrop(facewidth)]
-        if "crop_offset" in config['data']['transform']:
-            transformations.append(transforms.RandomCrop(facewidth - config['data']['transform']['crop_offset']))
-            self.logger.debug("Applying crops with offset {}".format(config['data']['transform']['crop_offset']))
-        else: 
-            self.logger.info("Images will not be cropped")
-        if "mirror" in config['data']['transform'] and config['data']['transform']['mirror']:
-            transformations.append(transforms.RandomHorizontalFlip())
-            self.logger.debug("Applying random horizontal flip")
-        else: 
-            self.logger.info("Images will not be mirrored")
-        if "resolution" in config['data']['transform']:
-            transformations.append(transforms.Resize(config['data']['transform']['resolution']))
-            self.logger.debug("Resizing imgaes to {}".format(config['data']['transform']['resolution']))
-        else:
-            self.logger.info("Images will not be resized")
-        self.transform = transforms.Compose([*transformations, transforms.ToTensor(), transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))])
+        self.transforms = {}
+        for data_type in self.data_types:
+            if data_type == 'sketch':
+                transformations = transforms.Compose([transforms.ToPILImage(), transforms.Resize(32), transforms.ToTensor(), transforms.Normalize([0.5], [0.5])])
+            
+            if data_type == 'face':
+                facewidth = Image.open(os.path.join(self.data_roots['face'], os.listdir(self.data_roots['face'])[0])).size[0]
+                transformations = [transforms.CenterCrop(facewidth)]
+                if "crop_offset" in self.config['data']['transform']:
+                    transformations.append(transforms.RandomCrop(facewidth - self.config['data']['transform']['crop_offset']))
+                    self.logger.debug("Applying crops with offset {}".format(self.config['data']['transform']['crop_offset']))
+                else: 
+                    self.logger.info("Images will not be cropped")
+                if "mirror" in self.config['data']['transform'] and self.config['data']['transform']['mirror']:
+                    transformations.append(transforms.RandomHorizontalFlip())
+                    self.logger.debug("Applying random horizontal flip")
+                else: 
+                    self.logger.info("Images will not be mirrored")
+                if "resolution" in self.config['data']['transform']:
+                    transformations.append(transforms.Resize(self.config['data']['transform']['resolution']))
+                    self.logger.debug("Resizing imgaes to {}".format(self.config['data']['transform']['resolution']))
+                else:
+                    self.logger.info("Images will not be resized")
+                transformations = transforms.Compose([*transformations, transforms.ToTensor(), transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))])
+            self.transforms[data_type] = transformations
 
     def set_random_state(self):
         if "random_seed" in self.config:
             np.random.seed(self.config["random_seed"])
             torch.random.manual_seed(self.config["random_seed"])
         else:
-            self.config["random_seed"] = np.random.randint(0,2**30-1)
-            np.random.seed(self.config["random_seed"])
-            torch.random.manual_seed(self.config["random_seed"])
+            raise ValueError("Enter random_seed in config.")
 
     def __len__(self):
         """This member function returns the length of the dataset
@@ -108,7 +135,7 @@ class Dataset(DatasetMixin):
         :return: [description]
         :rtype: [type]
         """
-        return len(self.sketch_indices)
+        return len(self.indices[self.data_types[0]])
 
     def get_example(self, idx):
         """This member function loads and returns images in a dictionary according to the given index.
@@ -127,25 +154,21 @@ class Dataset(DatasetMixin):
             example["parameters"] = parameters
         '''
         example = {}
-        sketch_idx = self.sketch_indices[int(idx)]
-        face_idx = self.face_indices[int(idx)]
         example["index"] = idx
-        # Load image
-        example["image_sketch"] = self.load_sketch_image(sketch_idx)
-        example["image_face"] = self.load_face_image(face_idx)
+        for data_type in self.data_types:
+            type_idx = self.indices[data_type][int(idx)]
+            # Load image
+            example["image_{}".format(data_type)] = self.load_image(type_idx, data_type)
         # Return example dictionary
         return example
     
-    def load_sketch_image(self, idx):
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize([0.5], [0.5])])
-        image = transform(self.sketch_data[idx])
-        return image
-
-    def load_face_image(self, idx):
-        image_path = os.path.join(self.data_root_face, str(idx) + ".jpg")
-        image = Image.open(image_path)
-        if self.transform:
-            image = self.transform(image)
+    def load_image(self, idx, data_type):
+        if data_type == 'sketch':
+            image = self.sketch_data[idx]
+        if data_type == 'face':
+            image_path = os.path.join(self.data_roots['face'], str(idx) + ".jpg")
+            image = Image.open(image_path)
+        image = self.transforms[data_type](image)
         return image
 
 class DatasetTrain(Dataset):
