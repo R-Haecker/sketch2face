@@ -13,14 +13,27 @@ def get_tensor_shapes(config, encoder = True, sketch = True):
     tensor_shapes.append([first_channel, config["data"]["transform"]["resolution"],config["data"]["transform"]["resolution"]])
     # how many downsampling blow will we need
     n_blocks = int(np.round(np.log2(config["data"]["transform"]["resolution"])))
+    if config["model_type"] == "sketch":
+        extra_conv = bool("sketch_extra_conv" in config["conv"] and config["conv"]["sketch_extra_conv"] != 0)
+    elif config["model_type"] == "face":
+        extra_conv = bool("face_extra_conv" in config["conv"] and config["conv"]["face_extra_conv"] != 0)
+    else:
+        assert 1==0, "TODO"
+    if extra_conv:
+        tensor_shapes.append([config["conv"]["n_channel_start"], tensor_shapes[0][-1], tensor_shapes[0][-1]])
+        range_ = [1, n_blocks+1]
+    else:
+        range_ = [0, n_blocks]
+    
     # calculate the shape after a convolutuonal operation
-    for i in range(0, n_blocks):
+    for i in range(*range_):
         spacial_res = tensor_shapes[i][-1]//2
         if i==0:
             channels = config["conv"]["n_channel_start"]
         else:
             channels = np.minimum(tensor_shapes[i][0]*2, config["conv"]["n_channel_max"])
-        if encoder and i == n_blocks - 1 and "variational" in config and "sigma" in config["variational"] and config["variational"]["sigma"]:
+        
+        if (encoder and i == n_blocks - 1 and not extra_conv and "variational" in config and "sigma" in config["variational"] and config["variational"]["sigma"]) or (encoder and i == n_blocks and extra_conv and "variational" in config and "sigma" in config["variational"] and config["variational"]["sigma"]):
             # if variational with sigma we want to out put double the channel dim at last operation for mu and sigma
             tensor_shapes.append([channels * 2, spacial_res, spacial_res])
         else:
@@ -44,7 +57,10 @@ def test_config(config):
     assert "transform" in config["data"]
     assert "resolution" in config["data"]["transform"]
     assert type(config["data"]["transform"]["resolution"]) == int, "Only use square face images with given int resolution"
-    
+    # ensure right model type
+    assert "model_type" in config, "We have to specify a model type"
+    assert config["model_type"] in ["sketch2face", "face", "sketch"], "Choose from given model types"
+
     assert "activation_function" in config, "For this model you need to specify the activation function: possible options :{'ReLU, LeakyReLu, Sigmoid, LogSigmoid, Tanh, SoftMax'}"
     # check for infromation about convolutions
     assert "conv" in config, "You have to use convolutional operations specified in config['conv']"

@@ -72,8 +72,6 @@ class Iterator(TemplateIterator):
         # get inputs
         input_images = kwargs["image_face"]
         index_ = kwargs["index"]
-        
-        self.logger.info("input images.shape: " + str(input_images.shape))
 
         input_images = torch.tensor(input_images).to(self.device)
 

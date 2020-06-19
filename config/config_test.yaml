@@ -31,7 +31,7 @@ debug_log_level: True
 iterator: iterator.iterator.Iterator
 model: model.vae.VAE_Model
 
-model_type: "sketch2face"
+model_type: "sketch"
 # face ; sketch
 
 batch_size: 10
@@ -52,5 +52,7 @@ variational:
 conv:
   n_channel_start: 32
   n_channel_max: 256
-  extra_conv: 1
+  sketch_extra_conv: 1
+  face_extra_conv: 2
 batch_norm: True
+random_seed: 10
