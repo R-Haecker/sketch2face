@@ -2,17 +2,18 @@
 code_root: null
 integrations:
   wandb:
-    active: True
+    active: False
     project: "Debug!"
 
 # Dataset info
 datasets:
   train: data.data_loader.dataset.DatasetTrain
   validation: data.data_loader.dataset.DatasetEval
-# documents/src/20_ss/deep_vision/sketch2face/data/data_sets
+
 data:
   data_root_face: /home/haecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/img_align_celeba/
   data_root_sketch: /home/haecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/full_numpy_bitmap_face.npy
+  
   shuffle: True
   validation_split: 0.1
   test_split: 0.1
@@ -29,6 +30,10 @@ debug_log_level: True
 # Iterator info
 iterator: iterator.iterator.Iterator
 model: model.vae.VAE_Model
+
+model_type: "sketch2face"
+# face ; sketch
+
 batch_size: 10
 num_epochs: 2
 
@@ -47,4 +52,5 @@ variational:
 conv:
   n_channel_start: 32
   n_channel_max: 256
+  extra_conv: 1
 batch_norm: True
