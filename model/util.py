@@ -2,17 +2,18 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-def get_tensor_shapes(config, encoder = True, sketch = True):
+def get_tensor_shapes(config, encoder = True):
     """This function calculates the shape of a every tensor after an operation in the VAE_Model.        
     :return: A list of the shape of an tensors after every module.
     :rtype: List
     """        
     tensor_shapes = []
     # The first shape is specified in the config
-    first_channel = 1 if sketch else 3
-    tensor_shapes.append([first_channel, config["data"]["transform"]["resolution"],config["data"]["transform"]["resolution"]])
+    first_channel = 1 if config["model_type"] == "sketch" else 3
+    resolution = config["data"]["transform"]["resolution"] if config["model_type"] == "face" else 32
+    tensor_shapes.append([first_channel, resolution, resolution])
     # how many downsampling blow will we need
-    n_blocks = int(np.round(np.log2(config["data"]["transform"]["resolution"])))
+    n_blocks = int(np.round(np.log2(resolution)))
     if config["model_type"] == "sketch":
         extra_conv = bool("sketch_extra_conv" in config["conv"] and config["conv"]["sketch_extra_conv"] != 0)
     elif config["model_type"] == "face":

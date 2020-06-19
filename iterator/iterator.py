@@ -70,7 +70,7 @@ class Iterator(TemplateIterator):
     def step_op(self, model, **kwargs):
         '''This function will be called every step in the training.'''
         # get inputs
-        input_images = kwargs["image_face"]
+        input_images = kwargs["image_" + self.config["model_type"]]
         index_ = kwargs["index"]
 
         input_images = torch.tensor(input_images).to(self.device)

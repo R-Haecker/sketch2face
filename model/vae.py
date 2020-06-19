@@ -33,8 +33,8 @@ class VAE_Model(nn.Module):
         self.config = config
         set_random_state(self.config)
         # calculate the tensor shapes throughout the network
-        self.tensor_shapes_enc = get_tensor_shapes(config, encoder = True, sketch = False)
-        self.tensor_shapes_dec = get_tensor_shapes(config, encoder = False, sketch=False)
+        self.tensor_shapes_enc = get_tensor_shapes(config, encoder = True)
+        self.tensor_shapes_dec = get_tensor_shapes(config, encoder = False)
         self.logger.info("tensor shapes: " + str(self.tensor_shapes_enc))
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # extract information from config
@@ -60,7 +60,9 @@ class VAE_Model(nn.Module):
         else:
             self.latent_dim = self.config["conv"]["n_channel_max"]
         self.logger.info("latnet dim: " + str(self.latent_dim))
-        n_blocks = int(np.round(np.log2(config["data"]["transform"]["resolution"])))
+        # how many downsampling blow will we need
+        resolution = config["data"]["transform"]["resolution"] if config["model_type"] == "face" else 32
+        n_blocks = int(np.round(np.log2(resolution)))
         # get the activation function
         self.act_func = get_act_func(config, self.logger)
         # craete encoder and decoder
