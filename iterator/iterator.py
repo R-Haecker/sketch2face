@@ -60,12 +60,10 @@ class Iterator(TemplateIterator):
 
     def criterion(self, input_images, output_images):
         """This function returns a dictionary with all neccesary losses for the model."""
-        # convert to numpy
-        
-        recon_crit = get_loss_funct(self.config["losses"]["reconstruction_loss"])
-        loss = recon_crit(input_images, output_images)
-
-        return loss        
+        losses = {}
+        reconstruction_criterion = get_loss_funct(self.config["losses"]["reconstruction_loss"])
+        losses["reconstruction_loss"] = reconstruction_criterion(input_images, output_images)
+        return losses
 
     def step_op(self, model, **kwargs):
         '''This function will be called every step in the training.'''
@@ -80,26 +78,19 @@ class Iterator(TemplateIterator):
         self.logger.debug("output.shape: " + str(output_images.shape))
         
         # create all losses
-        loss = self.criterion(input_images, output_images)
+        losses = self.criterion(input_images, output_images)
             
         def train_op():
+            if "optimization" in self.config and "reduce_lr" in self.config["optimization"]:
+                # reduce the learning rate if specified
+                losses["current_learning_rate"], losses["amplitude_learning_rate"] = self.update_learning_rate()
             # This function will be executed if the model is in training mode
-            loss.backward()
+            losses["reconstruction_loss"].backward()
             self.optimizer.step()
 
         def log_op():
-            in_img = pt2np(input_images)
-            out_img = pt2np(output_images)
-            loss_np = loss.cpu().detach().numpy() 
-            logs = {
-                "images": {
-                    "input_images": in_img,
-                    "output_images": out_img,
-                },
-                "scalars":{
-                    "L2": loss_np
-                    }
-            }
+            # This function will always execute
+            logs = self.prepare_logs(losses, input_images, output_images)
             return logs
 
         def eval_op():
@@ -107,6 +98,49 @@ class Iterator(TemplateIterator):
             return {}
 
         return {"train_op": train_op, "log_op": log_op, "eval_op": eval_op}
+
+    def prepare_logs(self, losses, inputs, predictions):
+        """Return a log dictionary with all instersting data to log."""
+        # create a dictionary to log with all interesting variables 
+        logs = {
+            "images": {},
+            "scalars":{
+                **losses
+                }
+        }
+        # log the input and output images
+        in_img = pt2np(inputs)
+        out_img = pt2np(predictions)
+        for i in range(self.config["batch_size"]):
+            logs["images"].update({"input_" + str(i): np.expand_dims(in_img[i],0)})
+            logs["images"].update({"output_" + str(i): np.expand_dims(out_img[i],0)})
+
+        def conditional_convert2np(log_item):
+            if isinstance(log_item, torch.Tensor):
+                log_item = log_item.detach().cpu().numpy()
+            return log_item
+        # convert to numpy
+        walk(logs, conditional_convert2np, inplace=True)
+        return logs
+
+
+    def update_learning_rate(self):
+        step = torch.tensor(self.get_global_step(), dtype = torch.float)
+        num_step = self.config["num_steps"]
+        current_ratio = step/self.config["num_steps"]
+        reduce_lr_ratio = self.config["optimization"]["reduce_lr"]
+        if current_ratio >= self.config["optimization"]["reduce_lr"]:
+            def amplitide_lr(step):
+                delta = (1-reduce_lr_ratio)*num_step
+                return (num_step-step)/delta
+            amp = amplitide_lr(step)
+            lr = self.config["learning_rate"] * amp
+            for g in self.optimizer.param_groups:
+                g['lr'] = lr
+            return lr, amp
+        else:
+            return self.config["learning_rate"], 1
+
 
     def save(self, checkpoint_path):
         '''Save the weights of the model to the checkpoint_path.'''

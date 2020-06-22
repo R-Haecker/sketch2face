@@ -31,11 +31,14 @@ debug_log_level: True
 iterator: iterator.iterator.Iterator
 model: model.vae.VAE_Model
 
-model_type: "sketch"
+model_type: "face"
 # face ; sketch
 
 batch_size: 10
 num_epochs: 2
+
+optimization:
+  reduce_lr: 0.001
 
 losses:
   reconstruction_loss: "L2"
