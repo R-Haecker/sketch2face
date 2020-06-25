@@ -21,7 +21,7 @@ from model.modules import (
 )
 
 class VAE_Model(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, sketch = True):
         super(VAE_Model, self).__init__()
         # set log level to debug if requested
         if "debug_log_level" in config and config["debug_log_level"]:
@@ -32,31 +32,29 @@ class VAE_Model(nn.Module):
         test_config(config)
         self.config = config
         set_random_state(self.config)
+        self.sketch = sketch
         # calculate the tensor shapes throughout the network
-        self.tensor_shapes_enc = get_tensor_shapes(config, encoder = True)
-        self.tensor_shapes_dec = get_tensor_shapes(config, encoder = False)
+        self.tensor_shapes_enc = get_tensor_shapes(config, sketch = self.sketch, encoder = True)
+        self.tensor_shapes_dec = get_tensor_shapes(config, sketch = self.sketch, encoder = False)
         self.logger.info("tensor shapes: " + str(self.tensor_shapes_enc))
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # extract information from config
         self.variational = bool("variational" in self.config) 
         self.sigma       = bool(self.variational and "sigma" in self.config["variational"] and self.config["variational"]["sigma"])        
         self.model_type = self.config["model_type"]
-        if self.config["model_type"] == "sketch":
+        if self.sketch:
             self.enc_extra_conv = self.config["conv"]["sketch_extra_conv"] if "sketch_extra_conv" in self.config["conv"] else 0
             self.dec_extra_conv = self.enc_extra_conv 
-        elif self.config["model_type"] == "face":
+        else self.config["model_type"] == "face":
             self.enc_extra_conv = self.config["conv"]["face_extra_conv"] if "face_extra_conv" in self.config["conv"] else 0
             self.dec_extra_conv = self.enc_extra_conv
-        elif self.config["model_type"] == "sketch2face":
-            # TODO
-            assert 1==0 , "Not ready yet"
-
+        
         if self.variational:
             if self.sigma:
                 self.latent_dim = int(self.tensor_shapes_enc[-1][0]/2)
                 self.logger.debug("decoder shapes: " + str(self.tensor_shapes_dec))
             else:
-                self.latent_dim = self.tensor_shapes_enc[-1][-1]
+                self.latent_dim = self.tensor_shapes_enc[-1][0]
         else:
             self.latent_dim = self.config["conv"]["n_channel_max"]
         self.logger.info("latnet dim: " + str(self.latent_dim))

@@ -48,10 +48,17 @@ class Iterator(TemplateIterator):
         in_img = pt2np(input_images)
         out_img = pt2np(G_output_images)
         # log the images as batches
-        logs["images"]["input_batch"] = in_img
-        logs["images"]["output_batch"] = out_img
-        # log the images separately
-        for i in range(self.config["batch_size"]):
+        logs = {
+            "images": {},
+            "scalars":{
+                **losses
+                }
+        }
+        logs["images"].update({"batch_input": in_img})
+        logs["images"].update({"batch_output": out_img})
+        # log only max three images separately
+        max_num = 3 if self.config["batch_size"] > 3 else self.config["batch_size"]
+        for i in range(max_num):
             logs["images"].update({"input_" + str(i): np.expand_dims(in_img[i],0)})
             logs["images"].update({"output_" + str(i): np.expand_dims(out_img[i],0)})
         # convert to numpy
@@ -98,31 +105,6 @@ class Iterator(TemplateIterator):
             return {}
 
         return {"train_op": train_op, "log_op": log_op, "eval_op": eval_op}
-
-    def prepare_logs(self, losses, inputs, predictions):
-        """Return a log dictionary with all instersting data to log."""
-        # create a dictionary to log with all interesting variables 
-        logs = {
-            "images": {},
-            "scalars":{
-                **losses
-                }
-        }
-        # log the input and output images
-        in_img = pt2np(inputs)
-        out_img = pt2np(predictions)
-        for i in range(self.config["batch_size"]):
-            logs["images"].update({"input_" + str(i): np.expand_dims(in_img[i],0)})
-            logs["images"].update({"output_" + str(i): np.expand_dims(out_img[i],0)})
-
-        def conditional_convert2np(log_item):
-            if isinstance(log_item, torch.Tensor):
-                log_item = log_item.detach().cpu().numpy()
-            return log_item
-        # convert to numpy
-        walk(logs, conditional_convert2np, inplace=True)
-        return logs
-
 
     def update_learning_rate(self):
         step = torch.tensor(self.get_global_step(), dtype = torch.float)

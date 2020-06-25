@@ -2,24 +2,22 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-def get_tensor_shapes(config, encoder = True):
+def get_tensor_shapes(config, sktech, encoder = True):
     """This function calculates the shape of a every tensor after an operation in the VAE_Model.        
     :return: A list of the shape of an tensors after every module.
     :rtype: List
     """        
     tensor_shapes = []
     # The first shape is specified in the config
-    first_channel = 1 if config["model_type"] == "sketch" else 3
-    resolution = config["data"]["transform"]["resolution"] if config["model_type"] == "face" else 32
+    first_channel = 1 if sketch else 3
+    resolution = config["data"]["transform"]["resolution"] if sketch else 32
     tensor_shapes.append([first_channel, resolution, resolution])
     # how many downsampling blow will we need
     n_blocks = int(np.round(np.log2(resolution)))
-    if config["model_type"] == "sketch":
+    if sketch:
         extra_conv = bool("sketch_extra_conv" in config["conv"] and config["conv"]["sketch_extra_conv"] != 0)
-    elif config["model_type"] == "face":
-        extra_conv = bool("face_extra_conv" in config["conv"] and config["conv"]["face_extra_conv"] != 0)
     else:
-        assert 1==0, "TODO"
+        extra_conv = bool("face_extra_conv" in config["conv"] and config["conv"]["face_extra_conv"] != 0)
     if extra_conv:
         tensor_shapes.append([config["conv"]["n_channel_start"], tensor_shapes[0][-1], tensor_shapes[0][-1]])
         range_ = [1, n_blocks+1]
@@ -54,7 +52,6 @@ def test_config(config):
     assert "data_root_face" in config["data"]
     assert "validation_split" in config["data"]
     assert "shuffle" in config["data"]
-    assert "test_split" in config["data"]
     assert "transform" in config["data"]
     assert "resolution" in config["data"]["transform"]
     assert type(config["data"]["transform"]["resolution"]) == int, "Only use square face images with given int resolution"
