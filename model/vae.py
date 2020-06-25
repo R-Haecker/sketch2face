@@ -60,9 +60,11 @@ class VAE_Model(nn.Module):
         
         # get the activation function
         self.act_func = get_act_func(config, self.logger)
+        enc_n_blocks = len(self.tensor_shapes_enc)-1 if self.enc_extra_conv == 0 else len(self.tensor_shapes_enc)-2
+        dec_n_blocks = len(self.tensor_shapes_dec)-1 if self.dec_extra_conv == 0 else len(self.tensor_shapes_dec)-2 
         # craete encoder and decoder
-        self.enc = VAE_Model_Encoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_enc, n_blocks = len(self.tensor_shapes_enc)-1, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.enc_extra_conv)
-        self.dec = VAE_Model_Decoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_dec, n_blocks = len(self.tensor_shapes_dec)-1, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.dec_extra_conv)
+        self.enc = VAE_Model_Encoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_enc, n_blocks = enc_n_blocks, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.enc_extra_conv)
+        self.dec = VAE_Model_Decoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_dec, n_blocks = dec_n_blocks, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.dec_extra_conv)
 
     def direct_z_sample(self, z):
         z = z.to(self.device)

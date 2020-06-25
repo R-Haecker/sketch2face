@@ -235,7 +235,7 @@ class Iterator(TemplateIterator):
         torch.save(state, checkpoint_path)
 
     def load(self, checkpoint_path):
-        state = torch.load(path)
+        state = torch.load(checkpoint_path)
         self.model.netG_A.enc.load_state_dict(state['sketch_encoder'])
         self.model.netG_B.dec.load_state_dict(state['sketch_decoder'])
         self.model.netD_A.load_state_dict(state['sketch_discriminator'])

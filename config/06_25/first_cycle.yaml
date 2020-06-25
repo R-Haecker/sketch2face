@@ -3,7 +3,7 @@ code_root: null
 integrations:
   wandb:
     active: True
-    project: "Debug!"
+    project: "sketch2face"
 
 # Dataset info
 datasets:
@@ -23,7 +23,7 @@ data:
     crop_offset: 0
 
 # Meta Info
-explanation: "Test only for debugging."
+explanation: "First cycle gan."
 debug_log_level: False
 #CUDA_VISIBLE_DEVICES: 8
 
@@ -35,10 +35,10 @@ model_type: "sketch2face"
 # face ; sketch
 
 batch_size: 10
-num_epochs: 4
+num_epochs: 10
 
 optimization:
-  reduce_lr: 0.001
+  reduce_lr: 0.7
 
 losses:
   reconstruction_loss: "L2"
@@ -46,20 +46,19 @@ losses:
   adversarial_loss: "BCE"
   adversarial_weight: 1.0
 
-
 # Model info
 activation_function: "ReLU"
 learning_rate: 0.0001
 #log_freq: 2000
 
 variational:
-  sigma: False
+  sigma: True
 
   # Conv parameters
 conv:
   n_channel_start: 32
   n_channel_max: 256
-  sketch_extra_conv: 0
-  face_extra_conv: 0
+  sketch_extra_conv: 1
+  face_extra_conv: 1
 batch_norm: True
 random_seed: 10
