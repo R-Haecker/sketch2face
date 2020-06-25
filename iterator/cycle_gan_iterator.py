@@ -9,6 +9,7 @@ from edflow import TemplateIterator, get_logger
 from edflow.hooks.checkpoint_hooks.common import get_latest_checkpoint
 from edflow.util import walk
 
+import itertools
 from iterator.util import (
     get_loss_funct,
     np2pt,
@@ -30,37 +31,55 @@ class Iterator(TemplateIterator):
         # Config will be tested inside the Model class even for the iterator
         # Log the architecture of the model
         self.logger.debug(f"{model}")
-        self.model = model
-        self.model.to(self.device)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config["learning_rate"])# , betas=(self.config["beta1"], 0.999), weight_decay=self.config["weight_decay"])
-        #self.vae.to(self.device)
+        self.model = model.to(self.device)
+        
+        self.optimizer_G = torch.optim.Adam(itertools.chain(self.model.netG_A.parameters(), self.model.netG_B.parameters()), lr=self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
+        self.optimizer_D = torch.optim.Adam(itertools.chain(self.model.netD_A.parameters(), self.model.netD_B.parameters()), lr=self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
+        
+        self.real_labels = torch.ones(self.batch_size, device=self.device)
+        self.fake_labels = torch.zeros(self.batch_size, device=self.device)
     
     def set_random_state(self):
         np.random.seed(self.config["random_seed"])
         torch.random.manual_seed(self.config["random_seed"])
 
     def criterion(self):
-        '''
-        input_images: dict with keys ['image_sketch', 'image_face']
-        model_output: dict: .output method of cycle_gan model CycleGAN_Model
-        '''
         """This function returns a dictionary with all neccesary losses for the model."""
+        
         reconstruction_criterion = get_loss_funct(self.config["losses"]["reconstruction_loss"])
         adversarial_criterion = get_loss_funct(self.config["losses"]["adversarial_loss"])
-
-        real_labels = torch.ones(self.batch_size)
-        fake_labels = torch.zeros(self.batch_size)
-
         losses = {}
-        #Generator loss
-        losses["rec_A"] = reconstruction_criterion(self.model.output['real_A'], self.model.output['rec_A'])
-        losses["rec_B"] = reconstruction_criterion(self.model.output['real_B'], self.model.output['rec_B'])
-        losses["adv_A"] = - adversarial_criterion(self.model.netD_A(self.model.output['fake_A']), fake_labels) - adversarial_criterion(self.model.netD_A(self.model.output['real_A']), real_labels)
-        losses["adv_B"] = -adversarial_criterion(self.model.netD_A(self.model.output['fake_B']), fake_labels) - adversarial_criterion(self.model.netD_A(self.model.output['real_B']), real_labels)
+        #########################
+        ###  A: cycle sketch  ###
+        #########################
+        losses["sketch_cycle"] = {}
+        # Generator
+        losses["sketch_cycle"]["rec"] = torch.mean( reconstruction_criterion( self.model.output['real_A'], self.model.output['rec_A'] ) )
+        losses["sketch_cycle"]["adv"] = torch.mean( adversarial_criterion( self.model.netD_B(self.model.output['fake_B']).view(-1) , self.real_labels ) )
+        
+        # Discriminator
+        losses["sketch_cycle"]["disc_fake"]  = torch.mean( adversarial_criterion( self.model.netD_B( self.model.output['fake_B'].detach()).view(-1), self.fake_labels ) )  
+        losses["sketch_cycle"]["disc_real"]  = torch.mean( adversarial_criterion( self.model.netD_B( self.model.output['real_B'].detach()).view(-1), self.real_labels ) )
+        losses["sketch_cycle"]["disc_total"] = losses["sketch_cycle"]["disc_fake"] + losses["sketch_cycle"]["disc_real"]
+        
+        #######################
+        ###  B: cycle face  ###
+        #######################
+        losses["face_cycle"] = {}
+        # Generator
+        losses["face_cycle"]["rec"] = torch.mean( reconstruction_criterion( self.model.output['real_B'], self.model.output['rec_B'] ) )
+        losses["face_cycle"]["adv"] = torch.mean( adversarial_criterion( self.model.netD_A(self.model.output['fake_A']).view(-1), self.real_labels ) )
+        
+        # Discriminator
+        losses["face_cycle"]["disc_fake"]  = torch.mean( adversarial_criterion( self.model.netD_A( self.model.output['fake_A'].detach()).view(-1), self.fake_labels ) )
+        losses["face_cycle"]["disc_real"]  = torch.mean( adversarial_criterion( self.model.netD_A( self.model.output['real_A'].detach()).view(-1), self.real_labels ) )
+        losses["face_cycle"]["disc_total"] = losses["face_cycle"]["disc_fake"] + losses["face_cycle"]["disc_real"]
+        
+        # Generator losses
+        losses["generators"]     = losses["sketch_cycle"]["rec"] + losses["face_cycle"]["rec"] + losses["sketch_cycle"]["adv"] + losses["face_cycle"]["adv"]
+        # Discriminator losses
+        losses["discriminators"] = losses["sketch_cycle"]["disc_total"] + losses["face_cycle"]["disc_total"]
 
-        #Discriminator loss
-        losses["disc_A"] = adversarial_criterion(self.model.netD_A(self.model.output['fake_A']).detach(), fake_labels) + adversarial_criterion(self.model.netD_A(self.model.output['real_A']).detach(), real_labels)
-        losses["disc_B"] = adversarial_criterion(self.model.netD_A(self.model.output['fake_B']).detach(), fake_labels) + adversarial_criterion(self.model.netD_A(self.model.output['real_B']).detach(), real_labels)
         return losses
 
     def step_op(self, model, **kwargs):
@@ -83,14 +102,21 @@ class Iterator(TemplateIterator):
         losses = self.criterion()
             
         def train_op():
+            # This function will be executed if the model is in training mode
             if "optimization" in self.config and "reduce_lr" in self.config["optimization"]:
                 # reduce the learning rate if specified
                 losses["current_learning_rate"], losses["amplitude_learning_rate"] = self.update_learning_rate()
-            # This function will be executed if the model is in training mode
-            for loss_key in losses.keys():
-                losses[loss_key].backward(loss_key)
-
-            self.optimizer.step()
+            
+            # Update the generators
+            self.set_requires_grad([self.model.netD_A, self.model.netD_B], False)
+            self.optimizer_G.zero_grad()
+            losses["generators"].backward()
+            self.optimizer_G.step()
+            # Update the discriminators
+            self.set_requires_grad([self.model.netD_A, self.model.netD_B], True)
+            self.optimizer_D.zero_grad()
+            losses["discriminators"].backward()
+            self.optimizer_D.step()
 
         def log_op():
             # This function will always execute
@@ -102,6 +128,19 @@ class Iterator(TemplateIterator):
             return {}
 
         return {"train_op": train_op, "log_op": log_op, "eval_op": eval_op}
+
+    def set_requires_grad(self, nets, requires_grad=False): # this function was copied from: https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/models/base_model.py 
+        """Set requies_grad=Fasle for all the networks to avoid unnecessary computations
+        Parameters:
+            nets (network list)   -- a list of networks
+            requires_grad (bool)  -- whether the networks require gradients or not
+        """
+        if not isinstance(nets, list):
+            nets = [nets]
+        for net in nets:
+            if net is not None:
+                for param in net.parameters():
+                    param.requires_grad = requires_grad
 
     def set_gpu(self):
         """Move the model to device cuda if available and use the specified GPU"""
@@ -121,17 +160,35 @@ class Iterator(TemplateIterator):
                 **losses
                 }
         }
-        # log the input and output images
+        ############
+        ## images ##
+        ############
         real_A_img = pt2np(inputs[0])
         real_B_img = pt2np(inputs[1])
-        fake_B_img = pt2np(predictions[0])
-        fake_A_img = pt2np(predictions[1])
-        for i in range(self.config["batch_size"]):
-            logs["images"].update({"real_A" + str(i): np.expand_dims(real_A_img[i],0)})
-            logs["images"].update({"real_B" + str(i): np.expand_dims(real_B_img[i],0)})
-            logs["images"].update({"fake_B" + str(i): np.expand_dims(fake_B_img[i],0)})
-            logs["images"].update({"fake_A" + str(i): np.expand_dims(fake_A_img[i],0)})
+        
+        logs["images"].update({"batch_input_sketch": real_A_img})
+        logs["images"].update({"batch_input_face": real_B_img})
 
+        fake_A_img = pt2np(predictions[1])
+        fake_B_img = pt2np(predictions[0])
+
+        logs["images"].update({"batch_fake_sketch": fake_A_img})
+        logs["images"].update({"batch_fake_face": fake_B_img})
+        
+        rec_A_img  = pt2np(self.model.output['rec_A'])
+        rec_B_img  = pt2np(self.model.output['rec_B'])
+        
+        logs["images"].update({"batch_rec_sketch": rec_A_img})
+        logs["images"].update({"batch_rec_face": rec_B_img})
+        
+        # log only max three images separately
+        max_num = 3 if self.config["batch_size"] > 3 else self.config["batch_size"]
+        for i in range(max_num):
+            logs["images"].update({"input_sketch_" + str(i): np.expand_dims(real_A_img[i],0)})
+            logs["images"].update({"input_face_"   + str(i): np.expand_dims(real_B_img[i],0)})
+            logs["images"].update({"fake_sketch_"  + str(i): np.expand_dims(fake_A_img[i],0)})
+            logs["images"].update({"fake_face_"    + str(i): np.expand_dims(fake_B_img[i],0)})
+            
         def conditional_convert2np(log_item):
             if isinstance(log_item, torch.Tensor):
                 log_item = log_item.detach().cpu().numpy()
@@ -151,8 +208,10 @@ class Iterator(TemplateIterator):
                 return (num_step-step)/delta
             amp = amplitide_lr(step)
             lr = self.config["learning_rate"] * amp
-            for g in self.optimizer.param_groups:
-                g['lr'] = lr
-            return lr, amp
+            
+            for optimizer in [self.optimizer_G, self.optimizer_D]:  
+                for g in optimizer.param_groups:
+                    g['lr'] = lr
+                return lr, amp
         else:
             return self.config["learning_rate"], 1

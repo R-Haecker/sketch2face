@@ -21,7 +21,7 @@ from model.modules import (
 )
 
 class VAE_Model(nn.Module):
-    def __init__(self, config, sketch = True):
+    def __init__(self, config, enc_sketch = True, dec_sketch = False):
         super(VAE_Model, self).__init__()
         # set log level to debug if requested
         if "debug_log_level" in config and config["debug_log_level"]:
@@ -32,22 +32,21 @@ class VAE_Model(nn.Module):
         test_config(config)
         self.config = config
         set_random_state(self.config)
-        self.sketch = sketch
+        self.enc_sketch = enc_sketch
+        self.dec_sketch = dec_sketch
         # calculate the tensor shapes throughout the network
-        self.tensor_shapes_enc = get_tensor_shapes(config, sketch = self.sketch, encoder = True)
-        self.tensor_shapes_dec = get_tensor_shapes(config, sketch = self.sketch, encoder = False)
+        self.tensor_shapes_enc = get_tensor_shapes(config, sketch = self.enc_sketch, encoder = True)
+        self.tensor_shapes_dec = get_tensor_shapes(config, sketch = self.dec_sketch, encoder = False)
         self.logger.info("tensor shapes: " + str(self.tensor_shapes_enc))
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # extract information from config
         self.variational = bool("variational" in self.config) 
         self.sigma       = bool(self.variational and "sigma" in self.config["variational"] and self.config["variational"]["sigma"])        
         self.model_type = self.config["model_type"]
-        if self.sketch:
-            self.enc_extra_conv = self.config["conv"]["sketch_extra_conv"] if "sketch_extra_conv" in self.config["conv"] else 0
-            self.dec_extra_conv = self.enc_extra_conv 
-        else self.config["model_type"] == "face":
-            self.enc_extra_conv = self.config["conv"]["face_extra_conv"] if "face_extra_conv" in self.config["conv"] else 0
-            self.dec_extra_conv = self.enc_extra_conv
+        key_enc = "sketch_extra_conv" if self.enc_sketch else "face_extra_conv"
+        self.enc_extra_conv = self.config["conv"][key_enc] if key_enc in self.config["conv"] else 0
+        key_dec = "sketch_extra_conv" if self.dec_sketch else "face_extra_conv"
+        self.dec_extra_conv = self.config["conv"][key_dec] if key_dec in self.config["conv"] else 0
         
         if self.variational:
             if self.sigma:
@@ -58,14 +57,12 @@ class VAE_Model(nn.Module):
         else:
             self.latent_dim = self.config["conv"]["n_channel_max"]
         self.logger.info("latnet dim: " + str(self.latent_dim))
-        # how many downsampling blow will we need
-        resolution = config["data"]["transform"]["resolution"] if config["model_type"] == "face" else 32
-        n_blocks = int(np.round(np.log2(resolution)))
+        
         # get the activation function
         self.act_func = get_act_func(config, self.logger)
         # craete encoder and decoder
-        self.enc = VAE_Model_Encoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_enc, n_blocks = n_blocks, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.enc_extra_conv)
-        self.dec = VAE_Model_Decoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_dec, n_blocks = n_blocks, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.dec_extra_conv)
+        self.enc = VAE_Model_Encoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_enc, n_blocks = len(self.tensor_shapes_enc)-1, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.enc_extra_conv)
+        self.dec = VAE_Model_Decoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_dec, n_blocks = len(self.tensor_shapes_dec)-1, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.dec_extra_conv)
 
     def direct_z_sample(self, z):
         z = z.to(self.device)
@@ -110,12 +107,12 @@ class VAE_Model(nn.Module):
             if self.sigma:
                 self.mu  = x[:, :self.latent_dim]
                 self.var = torch.abs(x[:, self.latent_dim:]) + 0.00001
-                #self.logger.debug("varitaional mu.shape: " + str(self.mu.shape))
-                #self.logger.debug("varitaional var.shape: " + str(self.var.shape))
+                self.logger.debug("varitaional mu.shape: " + str(self.mu.shape))
+                self.logger.debug("varitaional var.shape: " + str(self.var.shape))
             else:
                 self.mu  = x
                 self.var = 1
-                #self.logger.debug("varitaional mu.shape: " + str(self.mu.shape))
+                self.logger.debug("varitaional mu.shape: " + str(self.mu.shape))
             # final latent representatione
             x = self.mu + self.var * eps
         return x

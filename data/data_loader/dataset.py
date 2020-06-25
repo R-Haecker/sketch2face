@@ -57,6 +57,7 @@ class Dataset(DatasetMixin):
         for data_type in self.data_types:
             if data_type == 'sketch':
                 type_indices = np.arange(len(self.sketch_data))
+                num_sketches = len(type_indices)
                 if shuffle:
                     type_indices = np.random.permutation(type_indices)
             if data_type == 'face':
@@ -64,8 +65,8 @@ class Dataset(DatasetMixin):
                 if shuffle:
                     type_indices = np.random.permutation(type_indices)
                 if 'sketch' in self.data_types:
-                    cut_start = np.random.randint(len(type_indices)-len(indices['sketch']))
-                    type_indices = type_indices[cut_start : cut_start+len(indices['sketch'])]
+                    cut_start = np.random.randint(len(type_indices)-num_sketches)
+                    type_indices = type_indices[cut_start : cut_start+num_sketches]
             if train:
                 type_indices = type_indices[:int(len(type_indices)*(1-self.config['data']['validation_split']))]
             else:
