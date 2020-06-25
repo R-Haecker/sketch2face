@@ -42,7 +42,10 @@ optimization:
 
 losses:
   reconstruction_loss: "L2"
+  reconstruction_weight: 5.0
   adversarial_loss: "BCE"
+  adversarial_weight: 1.0
+
 
 # Model info
 activation_function: "ReLU"
