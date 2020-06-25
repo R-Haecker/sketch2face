@@ -70,6 +70,8 @@ def test_config(config):
     assert "losses" in config, "You have to specify the losses used in the model in config['losses']"
     assert "reconstruction_loss" in config["losses"], "The config must contain and define a Loss function for image reconstruction. possibilities:{'L1','L2'or'MSE'}."
     assert "learning_rate" in config, "The config must contain and define a the learning rate."
+    if "optimization" in config and "D_accuracy" in config["optimization"]:
+        assert type(config["optimization"]["D_accuracy"]) == list, "D_accuracy has to be a list for discriminator_A and discriminator_B"
     
 def get_act_func(config, logger):
     """This function retruns the specified activation function from the config."""

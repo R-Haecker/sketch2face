@@ -4,6 +4,7 @@ import random
 
 import torch
 import torch.nn as nn
+from torch.autograd import Variable
 
 from edflow import TemplateIterator, get_logger
 from edflow.hooks.checkpoint_hooks.common import get_latest_checkpoint
@@ -34,7 +35,8 @@ class Iterator(TemplateIterator):
         self.model = model.to(self.device)
         
         self.optimizer_G = torch.optim.Adam(itertools.chain(self.model.netG_A.parameters(), self.model.netG_B.parameters()), lr=self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
-        self.optimizer_D = torch.optim.Adam(itertools.chain(self.model.netD_A.parameters(), self.model.netD_B.parameters()), lr=self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
+        self.optimizer_D_A = torch.optim.Adam(self.model.netD_A.parameters(), lr=self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
+        self.optimizer_D_B = torch.optim.Adam(self.model.netD_B.parameters(), lr=self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
         
         self.real_labels = torch.ones(self.batch_size, device=self.device)
         self.fake_labels = torch.zeros(self.batch_size, device=self.device)
@@ -60,9 +62,18 @@ class Iterator(TemplateIterator):
         losses["sketch_cycle"]["adv"] = adv_weight * torch.mean( adversarial_criterion( self.model.netD_B(self.model.output['fake_B']).view(-1) , self.real_labels ) )
         
         # Discriminator
-        losses["sketch_cycle"]["disc_fake"]  = torch.mean( adversarial_criterion( self.model.netD_B( self.model.output['fake_B'].detach()).view(-1), self.fake_labels ) )  
-        losses["sketch_cycle"]["disc_real"]  = torch.mean( adversarial_criterion( self.model.netD_B( self.model.output['real_B'].detach()).view(-1), self.real_labels ) )
+        netD_B_fake_outputs = self.model.netD_B( self.model.output['fake_B'].detach()).view(-1)
+        netD_B_real_outputs = self.model.netD_B( self.model.output['real_B'].detach()).view(-1)
+        losses["discriminator_face"] = {}
+        losses["discriminator_face"]["outputs_fake"] = netD_B_fake_outputs.clone().detach().cpu().numpy()
+        losses["discriminator_face"]["outputs_real"] = netD_B_real_outputs.clone().detach().cpu().numpy()
+        losses["sketch_cycle"]["disc_fake"]  = adversarial_criterion( netD_B_fake_outputs, self.fake_labels )  
+        losses["sketch_cycle"]["disc_real"]  = adversarial_criterion( netD_B_real_outputs, self.real_labels )
         losses["sketch_cycle"]["disc_total"] = losses["sketch_cycle"]["disc_fake"] + losses["sketch_cycle"]["disc_real"]
+        
+        self.logger.debug('netD_B_real_outputs ' + str(netD_B_real_outputs))
+        self.logger.debug('losses["sketch_cycle"]["disc_real"] ' + str(losses["sketch_cycle"]["disc_real"]))
+        self.logger.debug('losses["sketch_cycle"]["disc_total"] ' + str(losses["sketch_cycle"]["disc_total"]))
         
         #######################
         ###  B: cycle face  ###
@@ -73,14 +84,26 @@ class Iterator(TemplateIterator):
         losses["face_cycle"]["adv"] = adv_weight * torch.mean( adversarial_criterion( self.model.netD_A(self.model.output['fake_A']).view(-1), self.real_labels ) )
         
         # Discriminator
-        losses["face_cycle"]["disc_fake"]  = torch.mean( adversarial_criterion( self.model.netD_A( self.model.output['fake_A'].detach()).view(-1), self.fake_labels ) )
-        losses["face_cycle"]["disc_real"]  = torch.mean( adversarial_criterion( self.model.netD_A( self.model.output['real_A'].detach()).view(-1), self.real_labels ) )
+        netD_A_fake_outputs = self.model.netD_A( self.model.output['fake_A'].detach()).view(-1)
+        netD_A_real_outputs = self.model.netD_A( self.model.output['real_A'].detach()).view(-1)
+        losses["discriminator_sketch"] = {}
+        losses["discriminator_sketch"]["outputs_fake"] = netD_A_fake_outputs.clone().detach().cpu().numpy()
+        losses["discriminator_sketch"]["outputs_real"] = netD_A_real_outputs.clone().detach().cpu().numpy()
+        losses["face_cycle"]["disc_fake"]  = adversarial_criterion( netD_A_fake_outputs, self.fake_labels )
+        losses["face_cycle"]["disc_real"]  = adversarial_criterion( netD_A_real_outputs, self.real_labels )
         losses["face_cycle"]["disc_total"] = losses["face_cycle"]["disc_fake"] + losses["face_cycle"]["disc_real"]
         
         # Generator losses
         losses["generators"]     = losses["sketch_cycle"]["rec"] + losses["face_cycle"]["rec"] + losses["sketch_cycle"]["adv"] + losses["face_cycle"]["adv"]
         # Discriminator losses
         losses["discriminators"] = losses["sketch_cycle"]["disc_total"] + losses["face_cycle"]["disc_total"]
+        # determine the accuracy of the discriminators
+        losses["discriminator_sketch"]["accuracy"], losses["discriminator_face"]["accuracy"] = self.accuracy_discriminator(losses)
+
+        losses["discriminator_face"]["outputs_fake"] = np.mean(losses["discriminator_face"]["outputs_fake"])
+        losses["discriminator_face"]["outputs_real"] = np.mean(losses["discriminator_face"]["outputs_real"])
+        losses["discriminator_sketch"]["outputs_fake"] = np.mean(losses["discriminator_sketch"]["outputs_fake"])
+        losses["discriminator_sketch"]["outputs_real"] = np.mean(losses["discriminator_sketch"]["outputs_real"])
 
         return losses
 
@@ -115,10 +138,35 @@ class Iterator(TemplateIterator):
             losses["generators"].backward()
             self.optimizer_G.step()
             # Update the discriminators
-            self.set_requires_grad([self.model.netD_A, self.model.netD_B], True)
-            self.optimizer_D.zero_grad()
-            losses["discriminators"].backward()
-            self.optimizer_D.step()
+
+            if "optimization" in self.config and "D_accuracy" in self.config["optimization"]:
+                losses["discriminator_sketch"]["update"] = 0
+                random_part_A = torch.rand(1)
+                if (losses["discriminator_sketch"]["accuracy"] < self.config["optimization"]["D_accuracy"][0]) or (random_part_A < 0.01):
+                    self.set_requires_grad([self.model.netD_A], True)
+                    self.optimizer_D_A.zero_grad()
+                    losses["face_cycle"]["disc_total"].backward()
+                    self.optimizer_D_A.step()
+                    losses["discriminator_sketch"]["update"] = 1
+                
+                losses["discriminator_face"]["update"] = 0
+                random_part_B = torch.rand(1)
+                if (losses["discriminator_face"]["accuracy"] < self.config["optimization"]["D_accuracy"][1]) or (random_part_B < 0.01):
+                    self.set_requires_grad([self.model.netD_B], True)
+                    self.optimizer_D_B.zero_grad()
+                    losses["sketch_cycle"]["disc_total"].backward()
+                    self.optimizer_D_B.step()
+                    losses["discriminator_face"]["update"] = 1
+                self.set_requires_grad([self.model.netD_A, self.model.netD_B], True)
+            else:
+                self.set_requires_grad([self.model.netD_A, self.model.netD_B], True)
+                self.optimizer_D_A.zero_grad()
+                self.optimizer_D_B.zero_grad()
+                losses["discriminators"].backward()
+                self.optimizer_D_A.step()
+                self.optimizer_D_B.step()
+                losses["discriminator_sketch"]["update"] = 1
+                losses["discriminator_face"]["update"] = 1
 
         def log_op():
             # This function will always execute
@@ -211,12 +259,27 @@ class Iterator(TemplateIterator):
             amp = amplitide_lr(step)
             lr = self.config["learning_rate"] * amp
             
-            for optimizer in [self.optimizer_G, self.optimizer_D]:  
+            for optimizer in [self.optimizer_G, self.optimizer_D_A, self.optimizer_D_B]:  
                 for g in optimizer.param_groups:
                     g['lr'] = lr
                 return lr, amp
         else:
             return self.config["learning_rate"], 1
+
+    def accuracy_discriminator(self, losses):
+        with torch.no_grad():
+            right_count_A = 0
+            right_count_B = 0
+
+            total_tests = 2 * self.config["batch_size"]
+            for i in range(self.config["batch_size"]):
+                if losses["discriminator_sketch"]["outputs_real"][i] >  0.5: right_count_A += 1 
+                if losses["discriminator_sketch"]["outputs_fake"][i] <= 0.5: right_count_A += 1
+                
+                if losses["discriminator_face"]["outputs_real"][i] >  0.5: right_count_B += 1 
+                if losses["discriminator_face"]["outputs_fake"][i] <= 0.5: right_count_B += 1
+                
+            return right_count_A/total_tests, right_count_B/total_tests
 
     def save(self, checkpoint_path):
         '''
@@ -231,7 +294,8 @@ class Iterator(TemplateIterator):
         state['face_decoder'] = self.model.netG_A.dec.state_dict()
         state['face_dicriminator'] = self.model.netD_B.state_dict()
         state['optimizer_G'] = self.optimizer_G.state_dict()
-        state['optimizer_D'] = self.optimizer_D.state_dict()
+        state['optimizer_D_A'] = self.optimizer_D_A.state_dict()
+        state['optimizer_D_B'] = self.optimizer_D_B.state_dict()
         torch.save(state, checkpoint_path)
 
     def load(self, checkpoint_path):
@@ -243,4 +307,5 @@ class Iterator(TemplateIterator):
         self.model.netG_A.dec.load_state_dict(state['face_decoder'])
         self.model.netD_B.load_state_dict(state['face_discriminator'])
         self.optimizer_G.load_state_dict(state['optimizer_G'])
-        self.optimizer_D.load_state_dict(state['optimizer_D'])
+        self.optimizer_D_A.load_state_dict(state['optimizer_D_A'])
+        self.optimizer_D_B.load_state_dict(state['optimizer_D_B'])
