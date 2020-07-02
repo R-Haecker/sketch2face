@@ -9,3 +9,5 @@
 **.ddl
 **.asset
 data/data_sets/*
+config/config_test.yaml
+Untitled.ipynb
