@@ -37,8 +37,9 @@ class Iterator(TemplateIterator):
         self.load_pretrained_vaes()
         
         self.optimizer_G = torch.optim.Adam(itertools.chain(self.model.netG_A.parameters(), self.model.netG_B.parameters()), lr=self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
-        self.optimizer_D_A = torch.optim.Adam(self.model.netD_A.parameters(), lr=self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
-        self.optimizer_D_B = torch.optim.Adam(self.model.netD_B.parameters(), lr=self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
+        D_lr_factor = self.config["optimization"]["D_lr_factor"] if "D_lr_factor" in config["optimization"] else 1
+        self.optimizer_D_A = torch.optim.Adam(self.model.netD_A.parameters(), lr=D_lr_factor * self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
+        self.optimizer_D_B = torch.optim.Adam(self.model.netD_B.parameters(), lr=D_lr_factor * self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
         
         self.real_labels = torch.ones(self.batch_size, device=self.device)
         self.fake_labels = torch.zeros(self.batch_size, device=self.device)

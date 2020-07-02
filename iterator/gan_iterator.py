@@ -35,7 +35,8 @@ class Iterator(TemplateIterator):
         self.model = model.to(self.device)
         
         self.optimizer_G = torch.optim.Adam(itertools.chain(self.model.netG.parameters()), lr=self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
-        self.optimizer_D = torch.optim.Adam(self.model.netD.parameters(), lr=self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
+        D_lr_factor = self.config["optimization"]["D_lr_factor"] if "D_lr_factor" in config["optimization"] else 1
+        self.optimizer_D = torch.optim.Adam(self.model.netD.parameters(), lr= D_lr_factor * self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
         
         self.real_labels = torch.ones(self.batch_size, device=self.device)
         self.fake_labels = torch.zeros(self.batch_size, device=self.device)

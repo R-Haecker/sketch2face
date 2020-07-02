@@ -40,6 +40,7 @@ num_epochs: 10
 optimization:
   reduce_lr: 0.7
   D_accuracy: [0.67,0.67]
+  D_lr_factor: 0.1
 
 losses:
   reconstruction_loss: "L2"
@@ -55,11 +56,12 @@ learning_rate: 0.00005
 variational:
   sigma: True
 
+
   # Conv parameters
 conv:
   n_channel_start: 32
   n_channel_max: 512
   sketch_extra_conv: 1
-    face_extra_conv: 1
+  face_extra_conv: 1
 batch_norm: True
 random_seed: 10
