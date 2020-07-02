@@ -28,10 +28,10 @@ debug_log_level: True
 #CUDA_VISIBLE_DEVICES: 8
 
 # Iterator info
-iterator: iterator.iterator.Iterator
-model: model.vae.VAE_Model
+iterator: iterator.gan_iterator.Iterator
+model: model.cycle_gan.CycleGAN_Model
 
-model_type: "face"
+model_type: "sketch"
 # face ; sketch
 
 batch_size: 10
@@ -39,9 +39,13 @@ num_epochs: 2
 
 optimization:
   reduce_lr: 0.001
+  D_accuracy: [0.67,0.67]
 
 losses:
   reconstruction_loss: "L2"
+  reconstruction_weight: 5.0
+  adversarial_loss: "BCE"
+  adversarial_weight: 1.0
 
 # Model info
 activation_function: "ReLU"
