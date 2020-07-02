@@ -55,7 +55,7 @@ class Iterator(TemplateIterator):
 
         losses["generator"] = {}
         losses["generator"]["rec"] = rec_weight * torch.mean( reconstruction_criterion( model_output, model_input))
-        losses["generator"]["adv"] = adv_weight * torch.mean( adversarial_criterion( self.model.netD(model_output).view(-1), self.fake_labels))
+        losses["generator"]["adv"] = adv_weight * torch.mean( adversarial_criterion( self.model.netD(model_output).view(-1), self.real_labels))
         losses["generator"]["total"] = losses["generator"]["rec"] + losses["generator"]["adv"]
 
         netD_real_outputs = self.model.netD( model_input.detach()).view(-1)
@@ -216,7 +216,7 @@ class Iterator(TemplateIterator):
         with torch.no_grad():
             right_count = 0
 
-            total_tests = self.config["batch_size"]
+            total_tests = 2*self.config["batch_size"]
             for i in range(self.config["batch_size"]):
                 if losses["discriminator"]["outputs_real"][i] >  0.5: right_count += 1 
                 if losses["discriminator"]["outputs_fake"][i] <= 0.5: right_count += 1
