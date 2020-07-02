@@ -33,6 +33,8 @@ class Iterator(TemplateIterator):
         # Log the architecture of the model
         self.logger.debug(f"{model}")
         self.model = model.to(self.device)
+
+        self.load_pretrained_vaes()
         
         self.optimizer_G = torch.optim.Adam(itertools.chain(self.model.netG_A.parameters(), self.model.netG_B.parameters()), lr=self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
         self.optimizer_D_A = torch.optim.Adam(self.model.netD_A.parameters(), lr=self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
@@ -44,6 +46,24 @@ class Iterator(TemplateIterator):
     def set_random_state(self):
         np.random.seed(self.config["random_seed"])
         torch.random.manual_seed(self.config["random_seed"])
+
+    def load_pretrained_vaes(self):
+        log_string = "No models loaded"
+        if "load_models" in self.config:
+            if "sketch_path" in self.config["load_models"] and "face_path" in self.config["load_models"]:
+                #load state dict of components of the VAE's
+                sketch_state = torch.load(self.config["load_models"]["sketch_path"])
+                face_state = torch.load(self.config["load_models"]["face_path"])
+
+                self.model.netG_A.enc.load_state_dict(sketch_state['encoder'])
+                self.model.netG_A.dec.load_state_dict(face_state['decoder'])
+                self.model.netD_A.load_state_dict(face_state['discriminator'])
+                self.model.netG_B.enc.load_state_dict(face_state['encoder'])
+                self.model.netG_B.dec.load_state_dict(sketch_state['decoder'])
+                self.model.netD_B.load_state_dict(sketch_state['discriminator'])
+                log_string = "Sketch VAE loaded from {}\nFace VAE loaded from {}".format(self.config["load_models"]["sketch_path"], self.config["load_models"]["face_path"])
+        self.logger.debug(log_string)
+
 
     def criterion(self):
         """This function returns a dictionary with all neccesary losses for the model."""

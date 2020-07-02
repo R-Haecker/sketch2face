@@ -30,6 +30,11 @@ debug_log_level: True
 # Iterator info
 iterator: iterator.gan_iterator.Iterator
 model: model.cycle_gan.CycleGAN_Model
+#load pretrained vaes for cycle gan model
+#load_models:
+#  face_path:
+#  sketch_path:
+
 
 model_type: "sketch"
 # face ; sketch
@@ -54,7 +59,7 @@ learning_rate: 0.0001
 
 variational:
   sigma: True
-
+  num_latent_layer: 1
   # Conv parameters
 conv:
   n_channel_start: 32
