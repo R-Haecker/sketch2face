@@ -1,0 +1,65 @@
+# info for run
+code_root: null
+integrations:
+  wandb:
+    active: True
+    project: "sketch2face"
+
+# Dataset info
+datasets:
+  train: data.data_loader.dataset.DatasetTrain
+  validation: data.data_loader.dataset.DatasetEval
+
+data:
+  data_root_face: /export/home/rhaecker/documents/sketch2face/data/data_sets/img_align_celeba/
+  data_root_sketch: /export/home/rhaecker/documents/sketch2face/data/data_sets/full_numpy_bitmap_face.npy
+  
+  shuffle: True
+  validation_split: 0.1
+  test_split: 0.1
+  transform:
+    resolution: 64
+    mirror: True
+    crop_offset: 10
+
+# Meta Info
+explanation: "Face GAN."
+debug_log_level: False
+#CUDA_VISIBLE_DEVICES: 8
+
+# Iterator info
+iterator: iterator.gan_iterator.Iterator
+model: model.cycle_gan.CycleGAN_Model
+
+model_type: "face"
+# face ; sketch
+
+batch_size: 16
+num_steps: 50000
+
+optimization:
+  reduce_lr: 0.7
+  D_accuracy: 0.8
+
+losses:
+  reconstruction_loss: "L2"
+  reconstruction_weight: 1.0
+  adversarial_loss: "BCE"
+  adversarial_weight: 1.0
+
+# Model info
+activation_function: "ReLU"
+learning_rate: 0.0001
+#log_freq: 2000
+
+variational:
+  sigma: False
+
+  # Conv parameters
+conv:
+  n_channel_start: 32
+  n_channel_max: 256
+  sketch_extra_conv: 1
+  face_extra_conv: 1
+batch_norm: True
+random_seed: 10

@@ -2,8 +2,8 @@
 code_root: null
 integrations:
   wandb:
-    active: False
-    project: "Debug!"
+    active: True
+    project: "sketch2face"
 
 # Dataset info
 datasets:
@@ -11,8 +11,8 @@ datasets:
   validation: data.data_loader.dataset.DatasetEval
 
 data:
-  data_root_face: /home/haecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/img_align_celeba/
-  data_root_sketch: /home/haecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/full_numpy_bitmap_face.npy
+  data_root_face: /export/home/rhaecker/documents/sketch2face/data/data_sets/img_align_celeba/
+  data_root_sketch: /export/home/rhaecker/documents/sketch2face/data/data_sets/full_numpy_bitmap_face.npy
   
   shuffle: True
   validation_split: 0.1
@@ -23,8 +23,8 @@ data:
     crop_offset: 0
 
 # Meta Info
-explanation: "Test only for debugging."
-debug_log_level: True
+explanation: "Sketch GAN."
+debug_log_level: False
 #CUDA_VISIBLE_DEVICES: 8
 
 # Iterator info
@@ -34,16 +34,16 @@ model: model.cycle_gan.CycleGAN_Model
 model_type: "sketch"
 # face ; sketch
 
-batch_size: 10
-num_epochs: 2
+batch_size: 16
+num_steps: 50000
 
 optimization:
-  reduce_lr: 0.001
-  D_accuracy: 0.67
+  reduce_lr: 0.7
+  D_accuracy: 0.8
 
 losses:
   reconstruction_loss: "L2"
-  reconstruction_weight: 5.0
+  reconstruction_weight: 1.0
   adversarial_loss: "BCE"
   adversarial_weight: 1.0
 
@@ -53,7 +53,7 @@ learning_rate: 0.0001
 #log_freq: 2000
 
 variational:
-  sigma: True
+  sigma: False
 
   # Conv parameters
 conv:
