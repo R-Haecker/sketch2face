@@ -244,3 +244,11 @@ class Iterator(TemplateIterator):
         self.model.netD.load_state_dict(state['discriminator'])
         self.optimizer_G.load_state_dict(state['optimizer_G'])
         self.optimizer_D.load_state_dict(state['optimizer_D'])
+
+    def restore(self, checkpoint):
+        state = torch.load(checkpoint)
+        self.model.netG.enc.load_state_dict(state['encoder'])
+        self.model.netG.dec.load_state_dict(state['decoder'])
+        self.model.netD.load_state_dict(state['discriminator'])
+        self.optimizer_G.load_state_dict(state['optimizer_G'])
+        self.optimizer_D.load_state_dict(state['optimizer_D'])

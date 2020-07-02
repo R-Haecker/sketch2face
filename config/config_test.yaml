@@ -45,6 +45,7 @@ num_epochs: 2
 optimization:
   reduce_lr: 0.001
   D_accuracy: [0.67,0.67]
+  D_lr_factor: 0.1
 
 losses:
   reconstruction_loss: "L2"
