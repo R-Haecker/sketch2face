@@ -17,7 +17,8 @@ from model.util import (
 from model.modules import (
     NormConv2d,
     Downsample,
-    Upsample
+    Upsample,
+    LinLayers
 )
 
 class VAE_Model(nn.Module):
@@ -57,14 +58,22 @@ class VAE_Model(nn.Module):
         else:
             self.latent_dim = self.config["conv"]["n_channel_max"]
         self.logger.info("latnet dim: " + str(self.latent_dim))
+
         
         # get the activation function
         self.act_func = get_act_func(config, self.logger)
         enc_n_blocks = len(self.tensor_shapes_enc)-1 if self.enc_extra_conv == 0 else len(self.tensor_shapes_enc)-2
         dec_n_blocks = len(self.tensor_shapes_dec)-1 if self.dec_extra_conv == 0 else len(self.tensor_shapes_dec)-2 
-        # craete encoder and decoder
+        # craete encoder and decoder and optional linear layer
         self.enc = VAE_Model_Encoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_enc, n_blocks = enc_n_blocks, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.enc_extra_conv)
         self.dec = VAE_Model_Decoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_dec, n_blocks = dec_n_blocks, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.dec_extra_conv)
+        
+        self.add_linear_layers = False
+        if "num_latent_layer" in self.config['variational']:
+            if self.config['variational']["num_latent_layer"] > 0:
+                self.add_linear_layers = True
+                self.latent_layer = LinLayers(self.config["variational"]["num_latent_layer"], self.latent_dim, self.sigma, self.config["batch_size"])
+                self.logger.info("Added {} linear layers layers".format(self.config["variational"]["num_latent_layer"]))
 
     def direct_z_sample(self, z):
         z = z.to(self.device)
@@ -129,7 +138,10 @@ class VAE_Model(nn.Module):
     def forward(self, x):
         """Encodes an image x into the latent represenation z and returns an image generated from that represenation."""        
         x = self.enc(x)
+        if self.add_linear_layers:
+            x = self.latent_layer(x)
         self.z = self.bottleneck(x)
+        
         #self.logger.debug("output: " + str(self.z.shape))   
         x = self.dec(self.z)
         #self.logger.debug("final output: " + str(x.shape))
@@ -252,3 +264,9 @@ class VAE_Model_Decoder(nn.Module):
         x = x.reshape(-1,*self.tensor_shapes[-1])
         x = self.conv_seq(x)
         return x
+
+
+        
+
+        
+        

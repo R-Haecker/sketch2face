@@ -88,3 +88,28 @@ class One_sided_padding(nn.Module):
       self.pad = padding
   def forward(self, x):
       return F.pad(x, (0,self.pad,0,self.pad), mode='constant', value=0)
+
+class LinLayers(nn.Module):
+    def __init__(self, num_lin_layers, latent_dim, sigma, batch_size):
+        super(LinLayers,self).__init__()
+        self.batch_size = batch_size
+        self.num_nodes = latent_dim 
+        if sigma:
+            self.num_nodes *= 2
+        layer_list = []
+        for i in range(num_lin_layers):
+            layer_list.append(nn.Linear(self.num_nodes, self.num_nodes))
+            layer_list.append(nn.BatchNorm1d(self.num_nodes))
+            layer_list.append(nn.ReLU())
+        self.layers = nn.Sequential(*layer_list)
+    
+    def forward(self, x):
+        change_shape = False
+        if len(x.shape) != 2:
+            original_shape = x.shape
+            change_shape = True
+            x = x.reshape(self.batch_size, self.num_nodes)
+        x = self.layers(x)
+        if change_shape:
+            x = x.reshape(*original_shape)
+        return x

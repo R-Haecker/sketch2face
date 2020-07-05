@@ -41,6 +41,11 @@ class Iterator(TemplateIterator):
         self.optimizer_D_A = torch.optim.Adam(self.model.netD_A.parameters(), lr=D_lr_factor * self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
         self.optimizer_D_B = torch.optim.Adam(self.model.netD_B.parameters(), lr=D_lr_factor * self.config["learning_rate"]) # betas=(opt.beta1, 0.999))
         
+        self.add_latent_layer = bool('num_latent_layer' in self.config['variational'] and self.config['variational']['num_latent_layer'] > 0)
+        self.only_latent_layer = bool('only_latent_layer' in self.config['optimization'] and self.config['optimization']['only_latent_layer'])
+        if self.only_latent_layer:
+            self.optimizer_Lin = torch.optim.Adam(itertools.chain(self.model.netG_A.latent_layer.parameters(), self.model.netG_B.latent_layer.parameters()), lr=self.config["learning_rate"])
+            self.logger.debug("Only latent layers are optimized\nNumber of latent layers: {}".format(self.config['variational']['num_latent_layer']))
         self.real_labels = torch.ones(self.batch_size, device=self.device)
         self.fake_labels = torch.zeros(self.batch_size, device=self.device)
     
@@ -58,10 +63,10 @@ class Iterator(TemplateIterator):
 
                 self.model.netG_A.enc.load_state_dict(sketch_state['encoder'])
                 self.model.netG_A.dec.load_state_dict(face_state['decoder'])
-                self.model.netD_A.load_state_dict(face_state['discriminator'])
+                self.model.netD_A.load_state_dict(sketch_state['discriminator'])
                 self.model.netG_B.enc.load_state_dict(face_state['encoder'])
                 self.model.netG_B.dec.load_state_dict(sketch_state['decoder'])
-                self.model.netD_B.load_state_dict(sketch_state['discriminator'])
+                self.model.netD_B.load_state_dict(face_state['discriminator'])
                 log_string = "Sketch VAE loaded from {}\nFace VAE loaded from {}".format(self.config["load_models"]["sketch_path"], self.config["load_models"]["face_path"])
         self.logger.debug(log_string)
 
@@ -155,9 +160,16 @@ class Iterator(TemplateIterator):
             
             # Update the generators
             self.set_requires_grad([self.model.netD_A, self.model.netD_B], False)
-            self.optimizer_G.zero_grad()
-            losses["generators"].backward()
-            self.optimizer_G.step()
+            if not self.only_latent_layer:
+                self.optimizer_G.zero_grad()
+                losses["generators"].backward()
+                self.optimizer_G.step()
+            else:
+                self.set_requires_grad([self.model.netG_A.enc, self.model.netG_A.dec, self.model.netG_B.enc, self.model.netG_B.dec], False)
+                self.optimizer_Lin.zero_grad()
+                losses["generators"].backward()
+                self.optimizer_Lin.step()
+
             # Update the discriminators
 
             if "optimization" in self.config and "D_accuracy" in self.config["optimization"]:
@@ -317,6 +329,12 @@ class Iterator(TemplateIterator):
         state['optimizer_G'] = self.optimizer_G.state_dict()
         state['optimizer_D_A'] = self.optimizer_D_A.state_dict()
         state['optimizer_D_B'] = self.optimizer_D_B.state_dict()
+        if self.add_latent_layer:
+            state['sketch_latent_layer'] = self.model.netG_A.latent_layer.state_dict()
+            state['face_latent_layer'] = self.model.netG_B.latent_layer.state_dict()
+            if self.only_latent_layer:
+                state['optimizer_Lin'] = self.optimizer_Lin.state_dict()
+        
         torch.save(state, checkpoint_path)
 
     def load(self, checkpoint_path):
@@ -330,3 +348,9 @@ class Iterator(TemplateIterator):
         self.optimizer_G.load_state_dict(state['optimizer_G'])
         self.optimizer_D_A.load_state_dict(state['optimizer_D_A'])
         self.optimizer_D_B.load_state_dict(state['optimizer_D_B'])
+
+        if self.add_latent_layer:
+            self.model.netG_A.latent_layer.load_state_dict(state['sketch_latent_layer'])
+            self.model.netG_B.latent_layer.load_state_dict(state['face_latent_layer'])
+            if self.only_latent_layer:
+                self.optimizer_Lin.load_state_dict(state['optimizer_Lin'])
