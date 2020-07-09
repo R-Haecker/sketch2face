@@ -160,6 +160,8 @@ class Dataset(DatasetMixin):
             type_idx = self.indices[data_type][int(idx)]
             # Load image
             example["image_{}".format(data_type)] = self.load_image(type_idx, data_type)
+        if "no_encoder" in self.config['data'] and self.config['data']["no_encoder"]:
+            example["random_sample"] = np.random.normal(size=self.config["conv"]["n_channel_max"])
         # Return example dictionary
         return example
     

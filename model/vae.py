@@ -48,7 +48,13 @@ class VAE_Model(nn.Module):
         self.enc_extra_conv = self.config["conv"][key_enc] if key_enc in self.config["conv"] else 0
         key_dec = "sketch_extra_conv" if self.dec_sketch else "face_extra_conv"
         self.dec_extra_conv = self.config["conv"][key_dec] if key_dec in self.config["conv"] else 0
-        
+
+        self.enc_drop_rate = None
+        self.dec_drop_rate = None
+        if "dropout" in self.config:
+            self.dec_drop_rate = self.config["dropout"]['dec_rate'] if 'dec_rate' in self.config["dropout"] else None
+            self.enc_drop_rate = self.config["dropout"]['enc_rate'] if 'enc_rate' in self.config["dropout"] else None
+            self.logger.info("Dropout used in generator with rates: dec_rate = {}, enc_rate = {}".format(self.dec_drop_rate, self.enc_drop_rate))
         if self.variational:
             if self.sigma:
                 self.latent_dim = int(self.tensor_shapes_enc[-1][0]/2)
@@ -65,8 +71,8 @@ class VAE_Model(nn.Module):
         enc_n_blocks = len(self.tensor_shapes_enc)-1 if self.enc_extra_conv == 0 else len(self.tensor_shapes_enc)-2
         dec_n_blocks = len(self.tensor_shapes_dec)-1 if self.dec_extra_conv == 0 else len(self.tensor_shapes_dec)-2 
         # craete encoder and decoder and optional linear layer
-        self.enc = VAE_Model_Encoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_enc, n_blocks = enc_n_blocks, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.enc_extra_conv)
-        self.dec = VAE_Model_Decoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_dec, n_blocks = dec_n_blocks, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.dec_extra_conv)
+        self.enc = VAE_Model_Encoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_enc, n_blocks = enc_n_blocks, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.enc_extra_conv, drop_rate = self.enc_drop_rate)
+        self.dec = VAE_Model_Decoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_dec, n_blocks = dec_n_blocks, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.dec_extra_conv, drop_rate = self.dec_drop_rate)
         
         self.add_linear_layers = False
         if "num_latent_layer" in self.config['variational']:
@@ -159,7 +165,8 @@ class VAE_Model_Encoder(nn.Module):
         variaional = None, 
         sigma      = None, 
         latent_dim = None,
-        extra_conv = 0
+        extra_conv = 0,
+        droprate = None
     ):
         super(VAE_Model_Encoder,self).__init__()
         self.logger = get_logger("VAE_Model_Encoder")
@@ -173,6 +180,7 @@ class VAE_Model_Encoder(nn.Module):
         self.sigma      = sigma
         self.latent_dim = latent_dim
         self.extra_conv = extra_conv
+        self.drop_rate = drop_rate
         
         self.conv_seq = self.get_module_blocks()
 
@@ -201,6 +209,8 @@ class VAE_Model_Encoder(nn.Module):
             conv_modules_list.append(
             Downsample(channels = channels_in, out_channels = channels_out, kernel_size = 3, stride = 2, padding = 1, conv_layer = self.conv, batch_norm = batch_norm) 
             )    
+            if self.drop_rate is not None:
+                conv_modules_list.append(nn.Dropout(self.drop_rate))
             conv_modules_list.append(self.act_func)
         return nn.Sequential(*conv_modules_list)
         
@@ -225,7 +235,8 @@ class VAE_Model_Decoder(nn.Module):
         variaional = None,
         sigma      = None,
         latent_dim = None,
-        extra_conv = 0
+        extra_conv = 0,
+        drop_rate = None
     ):
         super(VAE_Model_Decoder,self).__init__()
         self.logger = get_logger("VAE_Model_Decoder")
@@ -239,6 +250,7 @@ class VAE_Model_Decoder(nn.Module):
         self.sigma      = sigma
         self.latent_dim = latent_dim
         self.extra_conv = extra_conv
+        self.drop_rate = drop_rate
         
         self.conv_seq = self.get_module_blocks()
     
@@ -247,6 +259,8 @@ class VAE_Model_Decoder(nn.Module):
         for i in range(self.n_blocks, 0, -1):
             ba_norm = True if "batch_norm" in self.config and self.config["batch_norm"] and i != 1 else False
             upsample_modules_list.append(Upsample(in_channels = self.tensor_shapes[i][0], out_channels = self.tensor_shapes[i-1][0], conv_layer = self.conv, batch_norm = ba_norm))
+            if self.drop_rate is not None:
+                upsample_modules_list.append(nn.Dropout(self.drop_rate))
             if i != 1:
                 upsample_modules_list.append(self.act_func)
             elif self.extra_conv == 0 and i == 1:
@@ -261,6 +275,7 @@ class VAE_Model_Decoder(nn.Module):
         return nn.Sequential(*upsample_modules_list)
 
     def forward(self, x):
+        self.logger.debug("Decoder required input shape: {}".format(x.shape))
         x = x.reshape(-1,*self.tensor_shapes[-1])
         x = self.conv_seq(x)
         return x
