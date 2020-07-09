@@ -68,7 +68,7 @@ class Iterator(TemplateIterator):
             losses["discriminator"]["real"] = adversarial_criterion(netD_real_outputs, self.real_labels) 
         else:
             losses["discriminator"]["fake"] = torch.mean(netD_fake_outputs)
-            losses["discriminator"]["real"] = -troch.mean(netD_real_outputs)
+            losses["discriminator"]["real"] = -torch.mean(netD_real_outputs)
         losses["discriminator"]["total"] = losses["discriminator"]["fake"] + losses["discriminator"]["real"]
 
         self.logger.debug('netD_real_outputs: {}'.format(netD_real_outputs))
