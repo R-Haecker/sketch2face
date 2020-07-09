@@ -53,16 +53,22 @@ class Iterator(TemplateIterator):
         adversarial_criterion = get_loss_funct(self.config["losses"]["adversarial_loss"])
 
         losses["generator"] = {}
-        losses["generator"]["adv"] = torch.mean(adversarial_criterion( self.model.netD(model_output).view(-1), self.real_labels)) if self.config["losses"]["adversarial_loss"] is not "wasserstein" else -torch.mean(self.model.netD(model_output).view(-1))
+        if self.config["losses"]["adversarial_loss"] != "wasserstein":
+            torch.mean(adversarial_criterion( self.model.netD(model_output).view(-1), self.real_labels))  
+        else 
+            losses["generator"]["adv"] = -torch.mean(self.model.netD(model_output).view(-1))
         
         netD_real_outputs = self.model.netD( real_images.detach()).view(-1)
         netD_fake_outputs = self.model.netD( model_output.detach()).view(-1)
         losses["discriminator"] = {}
         losses["discriminator"]["outputs_fake"] = netD_fake_outputs.detach().cpu().numpy()
         losses["discriminator"]["outputs_real"] = netD_real_outputs.detach().cpu().numpy()
-        
-        losses["discriminator"]["fake"] = adversarial_criterion(netD_fake_outputs, self.fake_labels) if self.config["losses"]["adversarial_loss"] is not "wasserstein" else torch.mean(netD_fake_outputs)
-        losses["discriminator"]["real"] = adversarial_criterion(netD_real_outputs, self.real_labels) if self.config["losses"]["adversarial_loss"] is not "wasserstein" else -torch.mean(netD_real_outputs)
+        if self.config["losses"]["adversarial_loss"] != "wasserstein":
+            losses["discriminator"]["fake"] = adversarial_criterion(netD_fake_outputs, self.fake_labels)
+            losses["discriminator"]["real"] = adversarial_criterion(netD_real_outputs, self.real_labels) 
+        else:
+            losses["discriminator"]["fake"] = torch.mean(netD_fake_outputs)
+            losses["discriminator"]["real"] = -troch.mean(netD_real_outputs)
         losses["discriminator"]["total"] = losses["discriminator"]["fake"] + losses["discriminator"]["real"]
 
         self.logger.debug('netD_real_outputs: {}'.format(netD_real_outputs))
