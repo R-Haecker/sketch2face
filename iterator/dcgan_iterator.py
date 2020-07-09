@@ -89,7 +89,7 @@ class Iterator(TemplateIterator):
         self.logger.debug("model_input.shape: {}".format(model_input[0].shape))
         model_output = self.model(model_input)
         self.logger.debug("model_output.shape: {}".format(model_output[0].shape))
-        self.wasserstein = True if self.config['adversarial_loss'] == 'wasserstein' else False
+        self.wasserstein = True if self.config["losses"]['adversarial_loss'] == 'wasserstein' else False
 
         
         # create all losses

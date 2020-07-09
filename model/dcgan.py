@@ -28,7 +28,7 @@ class DCGAN_Model(nn.Module):
             self.dec_drop_rate = self.config["dropout"]['dec_rate'] if 'dec_rate' in self.config["dropout"] else None
             self.disc_drop_rate = self.config["dropout"]['disc_rate'] if ('disc_rate' in self.config["dropout"]) else 0  
             self.logger.debug("Dropout oused in discriminator with disc_rate = {}".format(self.disc_drop_rate))
-        self.wasserstein = True if self.config['adversarial_loss'] == 'wasserstein' else False
+        self.wasserstein = True if self.config["losses"]['adversarial_loss'] == 'wasserstein' else False
 
         key_dec = "sketch_extra_conv" if self.sketch else "face_extra_conv"
         self.dec_extra_conv = self.config["conv"][key_dec] if key_dec in self.config["conv"] else 0
