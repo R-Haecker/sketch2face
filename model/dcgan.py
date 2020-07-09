@@ -28,6 +28,7 @@ class DCGAN_Model(nn.Module):
             self.dec_drop_rate = self.config["dropout"]['dec_rate'] if 'dec_rate' in self.config["dropout"] else None
             self.disc_drop_rate = self.config["dropout"]['disc_rate'] if ('disc_rate' in self.config["dropout"]) else 0  
             self.logger.debug("Dropout oused in discriminator with disc_rate = {}".format(self.disc_drop_rate))
+        self.wasserstein = True if self.config['adversarial_loss'] == 'wasserstein' else False
 
         key_dec = "sketch_extra_conv" if self.sketch else "face_extra_conv"
         self.dec_extra_conv = self.config["conv"][key_dec] if key_dec in self.config["conv"] else 0
@@ -46,7 +47,7 @@ class DCGAN_Model(nn.Module):
         dec_n_blocks = len(self.tensor_shapes_dec)-1 if self.dec_extra_conv == 0 else len(self.tensor_shapes_dec)-2 
 
         self.netG = VAE_Model_Decoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_dec, n_blocks = dec_n_blocks, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.dec_extra_conv, drop_rate = self.dec_drop_rate)
-        self.netD = Discriminator_sketch(droprate=self.disc_drop_rate) if self.sketch else Discriminator_face(droprate=self.disc_drop_rate)
+        self.netD = Discriminator_sketch(droprate=self.disc_drop_rate, wasserstein=self.wasserstein) if self.sketch else Discriminator_face(droprate=self.disc_drop_rate, wasserstein=self.wasserstein)
 
     def forward(self, x):
         return self.netG(x)

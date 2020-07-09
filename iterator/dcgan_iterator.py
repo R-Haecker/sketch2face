@@ -48,19 +48,21 @@ class Iterator(TemplateIterator):
     def criterion(self, real_images, model_output):
         """This function returns a dictionary with all neccesary losses for the model."""
         
-        adversarial_criterion = get_loss_funct(self.config["losses"]["adversarial_loss"])
         losses = {}
 
-        losses["generator"] = {}
-        losses["generator"]["adv"] = torch.mean( adversarial_criterion( self.model.netD(model_output).view(-1), self.real_labels))
+        adversarial_criterion = get_loss_funct(self.config["losses"]["adversarial_loss"])
 
+        losses["generator"] = {}
+        losses["generator"]["adv"] = torch.mean(adversarial_criterion( self.model.netD(model_output).view(-1), self.real_labels)) if self.config["losses"]["adversarial_loss"] is not "wasserstein" else -torch.mean(self.model.netD(model_output).view(-1))
+        
         netD_real_outputs = self.model.netD( real_images.detach()).view(-1)
         netD_fake_outputs = self.model.netD( model_output.detach()).view(-1)
         losses["discriminator"] = {}
         losses["discriminator"]["outputs_fake"] = netD_fake_outputs.detach().cpu().numpy()
         losses["discriminator"]["outputs_real"] = netD_real_outputs.detach().cpu().numpy()
-        losses["discriminator"]["fake"] = adversarial_criterion(netD_fake_outputs, self.fake_labels)
-        losses["discriminator"]["real"] = adversarial_criterion(netD_real_outputs, self.real_labels)
+        
+        losses["discriminator"]["fake"] = adversarial_criterion(netD_fake_outputs, self.fake_labels) if self.config["losses"]["adversarial_loss"] is not "wasserstein" else torch.mean(netD_fake_outputs)
+        losses["discriminator"]["real"] = adversarial_criterion(netD_real_outputs, self.real_labels) if self.config["losses"]["adversarial_loss"] is not "wasserstein" else -torch.mean(netD_real_outputs)
         losses["discriminator"]["total"] = losses["discriminator"]["fake"] + losses["discriminator"]["real"]
 
         self.logger.debug('netD_real_outputs: {}'.format(netD_real_outputs))
@@ -87,6 +89,8 @@ class Iterator(TemplateIterator):
         self.logger.debug("model_input.shape: {}".format(model_input[0].shape))
         model_output = self.model(model_input)
         self.logger.debug("model_output.shape: {}".format(model_output[0].shape))
+        self.wasserstein = True if self.config['adversarial_loss'] == 'wasserstein' else False
+
         
         # create all losses
         losses = self.criterion(real_images, model_output)
@@ -104,7 +108,7 @@ class Iterator(TemplateIterator):
             self.optimizer_G.step()
             # Update the discriminators
 
-            if "optimization" in self.config and "D_accuracy" in self.config["optimization"]:
+            if "optimization" in self.config and "D_accuracy" in self.config["optimization"] and not self.wasserstein:
                 losses["discriminator"]["update"] = 0
                 random_part_A = torch.rand(1)
                 if (losses["discriminator"]["accuracy"] < self.config["optimization"]["D_accuracy"]) or (random_part_A < 0.01):

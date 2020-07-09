@@ -10,6 +10,8 @@ def get_loss_funct(loss_function):
         return nn.MSELoss()
     if loss_function == "BCE":
         return nn.BCELoss()
+    if loss_function == "wasserstein":
+        return
 
 # These two function are copied from the VUNet repository: https://github.com/jhaux/VUNet.git
 def np2pt(array, permute = True):

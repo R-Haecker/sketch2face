@@ -21,7 +21,7 @@ class Discriminator_sketch(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # state size. (ndf*8) x 4 x 4
             nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=False),
-            nn.Sigmoid() if not wasserstein else nn.LeakyReLU()
+            nn.Sigmoid() if not wasserstein else nn.Identity()
         )
 
     def forward(self, input):

@@ -166,7 +166,7 @@ class VAE_Model_Encoder(nn.Module):
         sigma      = None, 
         latent_dim = None,
         extra_conv = 0,
-        droprate = None
+        drop_rate = None
     ):
         super(VAE_Model_Encoder,self).__init__()
         self.logger = get_logger("VAE_Model_Encoder")
