@@ -113,3 +113,48 @@ class LinLayers(nn.Module):
         if change_shape:
             x = x.reshape(*original_shape)
         return x
+
+class Transpose2dBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, Activation=nn.ReLU(), batch_norm=True, drop_rate=None, bias=False, kernel_size=4, stride=2, padding=1):
+        super(Transpose2dBlock, self).__init__()
+        layers = [nn.ConvTranspose2d( in_channels, out_channels, kernel_size, stride, padding, bias=False)]
+        if batch_norm:
+            layers.append(nn.BatchNorm2d(out_channels))
+        if drop_rate is not None:
+            layers.append(nn.Dropout(drop_rate))
+        layers.append(Activation)
+
+        self.main = nn.Sequential(*layers)
+    
+    def forward(self, x):
+        return self.main(x)
+
+
+class ExtraConvBlock(nn.Module):
+    def __init__(self, channels, Activation=nn.ReLU(), batch_norm=True, drop_rate=None, bias=False):
+        super(ExtraConvBlock, self).__init__()
+        layers = [nn.Conv2d(in_channels=channels, out_channels=channels, kernel_size=3, stride=1, padding=1)]
+        if batch_norm:
+            layers.append(nn.BatchNorm2d(channels))
+        if drop_rate is not None:
+            layers.append(nn.Dropout(drop_rate))
+        layers.append(Activation)
+
+        self.main = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.main(x)
+
+class Conv2dBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, Activation=nn.ReLU(), batch_norm=True, drop_rate=None, bias=False, kernel_size=3, stride=2, padding=1):
+        super(Conv2dBlock, self).__init__()
+        layers = [nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size, stride=stride, padding=padding)]
+        if batch_norm:
+            layers.append(nn.BatchNorm2d(out_channels))
+        if drop_rate is not None:
+            layers.append(nn.Dropout(drop_rate))
+        layers.append(Activation)
+
+        self.main = nn.Sequential(*layers)
+    def forward(self, x):
+        return self.main(x)
