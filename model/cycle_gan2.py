@@ -29,21 +29,23 @@ class CycleGAN_Model(nn.Module):
         drop_rate_dec = self.config['dropout']['dec_rate']
         bias_enc = self.config['bias']['enc']
         bias_dec = self.config['bias']['dec']
-
+        num_latent_layer = self.config['variational']['num_latent_layer'] if 'num_latent_layer' in self.config['variational'] else 0
         if self.cycle:
             self.netG_A = VAE_Model(latent_dim, min_channels, max_channels, *sketch_shape, *face_shape,
                                     sigma, num_extra_conv_sketch, num_extra_conv_face, 
                                     BlockActivation, FinalActivation,
                                     batch_norm_enc, batch_norm_dec,
                                     drop_rate_enc, drop_rate_dec,
-                                    bias_enc, bias_dec)
+                                    bias_enc, bias_dec, 
+                                    num_latent_layer = num_latent_layer)
             self.netD_A = Discriminator_sketch()
             self.netG_B = VAE_Model(latent_dim, min_channels, max_channels, *face_shape, *sketch_shape,
                                     sigma, num_extra_conv_face, num_extra_conv_sketch, 
                                     BlockActivation, FinalActivation,
                                     batch_norm_enc, batch_norm_dec,
                                     drop_rate_enc, drop_rate_dec,
-                                    bias_enc, bias_dec)
+                                    bias_enc, bias_dec, 
+                                    num_latent_layer = num_latent_layer)
             self.netD_B = Discriminator_face()
         else:
             sketch = True if "sketch" in self.config["model_type"] else False

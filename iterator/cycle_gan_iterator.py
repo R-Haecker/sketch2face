@@ -5,6 +5,7 @@ import random
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+from torch.autograd import grad as torch_grad
 
 from edflow import TemplateIterator, get_logger
 from edflow.hooks.checkpoint_hooks.common import get_latest_checkpoint
@@ -70,6 +71,43 @@ class Iterator(TemplateIterator):
                 log_string = "Sketch VAE loaded from {}\nFace VAE loaded from {}".format(self.config["load_models"]["sketch_path"], self.config["load_models"]["face_path"])
         self.logger.debug(log_string)
 
+    def kld_update(self, weight, steps, delay, slope_steps):
+        output = 0
+        if steps >= delay and steps < slope_steps+delay:
+            output = weight*(1 - np.cos((steps-delay)*np.pi/slope_steps))/2
+        if steps > slope_steps+delay:
+            output = weight
+        return output
+
+    def _gradient_penalty(self, discriminator, real_data, generated_data):
+        batch_size = real_data.size()[0]
+
+        # Calculate interpolation
+        alpha = torch.rand(batch_size, 1, 1, 1)
+        alpha = alpha.expand_as(real_data).to(self.device)
+        interpolated = alpha * real_data + (1 - alpha) * generated_data
+        interpolated = Variable(interpolated, requires_grad=True).to(self.device)
+        #if self.use_cuda:
+        #    interpolated = interpolated.cuda()
+
+        # Calculate probability of interpolated examples
+        prob_interpolated = discriminator(interpolated)
+
+        # Calculate gradients of probabilities with respect to examples
+        gradients = torch_grad(outputs=prob_interpolated, inputs=interpolated,
+                               grad_outputs=torch.ones(prob_interpolated.size()).to(self.device),
+                               create_graph=True, retain_graph=True)[0]
+
+        # Gradients have shape (batch_size, num_channels, img_width, img_height),
+        # so flatten to easily take norm per example in batch
+        gradients = gradients.view(batch_size, -1)
+
+        # Derivatives of the gradient close to 0 can cause problems because of
+        # the square root, so manually calculate norm and add epsilon
+        gradients_norm = torch.sqrt(torch.sum(gradients ** 2, dim=1) + 1e-12)
+
+        # Return gradient penalty
+        return ((gradients_norm - 1) ** 2).mean()
 
     def criterion(self):
         """This function returns a dictionary with all neccesary losses for the model."""
@@ -78,7 +116,15 @@ class Iterator(TemplateIterator):
         rec_weight = self.config["losses"]["reconstruction_weight"]
         adversarial_criterion = get_loss_funct(self.config["losses"]["adversarial_loss"])
         adv_weight = self.config["losses"]["adversarial_weight"]
+        gp_weight = self.config["losses"]["gp_weight"] if "gp_weight" in self.config["losses"] else 0
+
         losses = {}
+
+        kld_weight = self.config["losses"]["kld"]["weight"] if "kld" in self.config["losses"] else 0
+        kld_delay = self.config["losses"]['kld']["delay"] if "delay" in self.config["losses"]['kld'] else 0
+        kld_slope_steps = self.config["losses"]['kld']["slope_steps"] if "slope_steps" in self.config["losses"]['kld'] else 0
+        losses["kld_weight"] = self.kld_update(kld_weight, self.get_global_step(), kld_delay, kld_slope_steps)
+
         #########################
         ###  A: cycle sketch  ###
         #########################
@@ -86,7 +132,9 @@ class Iterator(TemplateIterator):
         # Generator
         losses["sketch_cycle"]["rec"] = rec_weight * torch.mean( reconstruction_criterion( self.model.output['real_A'], self.model.output['rec_A'] ) )
         losses["sketch_cycle"]["adv"] = adv_weight * torch.mean( adversarial_criterion( self.model.netD_B(self.model.output['fake_B']).view(-1) , self.real_labels ) )
-        
+        if kld_weight > 0 and self.model.sigma:
+            losses["sketch_cycle"]["kld"] = losses["kld_weight"]* -0.5 * torch.mean(1 + self.model.netG_A.logvar - self.model.netG_A.mu.pow(2) - self.model.netG_A.logvar.exp())
+
         # Discriminator
         netD_B_fake_outputs = self.model.netD_B( self.model.output['fake_B'].detach()).view(-1)
         netD_B_real_outputs = self.model.netD_B( self.model.output['real_B'].detach()).view(-1)
@@ -96,7 +144,10 @@ class Iterator(TemplateIterator):
         losses["sketch_cycle"]["disc_fake"]  = adversarial_criterion( netD_B_fake_outputs, self.fake_labels )  
         losses["sketch_cycle"]["disc_real"]  = adversarial_criterion( netD_B_real_outputs, self.real_labels )
         losses["sketch_cycle"]["disc_total"] = losses["sketch_cycle"]["disc_fake"] + losses["sketch_cycle"]["disc_real"]
-        
+        if gp_weight > 0:
+            losses["sketch_cycle"]["gp"] = gp_weight * self._gradient_penalty(self.model.netD_B, self.model.output['real_B'], self.model.output['fake_B'].detach())
+            losses["sketch_cycle"]["disc_total"] += losses["sketch_cycle"]["gp"]
+
         self.logger.debug('netD_B_real_outputs ' + str(netD_B_real_outputs))
         self.logger.debug('losses["sketch_cycle"]["disc_real"] ' + str(losses["sketch_cycle"]["disc_real"]))
         self.logger.debug('losses["sketch_cycle"]["disc_total"] ' + str(losses["sketch_cycle"]["disc_total"]))
@@ -108,7 +159,9 @@ class Iterator(TemplateIterator):
         # Generator
         losses["face_cycle"]["rec"] = rec_weight * torch.mean( reconstruction_criterion( self.model.output['real_B'], self.model.output['rec_B'] ) )
         losses["face_cycle"]["adv"] = adv_weight * torch.mean( adversarial_criterion( self.model.netD_A(self.model.output['fake_A']).view(-1), self.real_labels ) )
-        
+        if kld_weight > 0 and self.model.sigma:
+            losses["face_cycle"]["kld"] = losses["kld_weight"]* -0.5 * torch.mean(1 + self.model.netG_B.logvar - self.model.netG_B.mu.pow(2) - self.model.netG_B.logvar.exp())
+
         # Discriminator
         netD_A_fake_outputs = self.model.netD_A( self.model.output['fake_A'].detach()).view(-1)
         netD_A_real_outputs = self.model.netD_A( self.model.output['real_A'].detach()).view(-1)
@@ -118,9 +171,14 @@ class Iterator(TemplateIterator):
         losses["face_cycle"]["disc_fake"]  = adversarial_criterion( netD_A_fake_outputs, self.fake_labels )
         losses["face_cycle"]["disc_real"]  = adversarial_criterion( netD_A_real_outputs, self.real_labels )
         losses["face_cycle"]["disc_total"] = losses["face_cycle"]["disc_fake"] + losses["face_cycle"]["disc_real"]
-        
+        if gp_weight > 0:
+            losses["face_cycle"]["gp"] = gp_weight * self._gradient_penalty(self.model.netD_A, self.model.output['real_A'], self.model.output['fake_A'].detach())
+            losses["face_cycle"]["disc_total"] += losses["face_cycle"]["gp"]
+
         # Generator losses
         losses["generators"]     = losses["sketch_cycle"]["rec"] + losses["face_cycle"]["rec"] + losses["sketch_cycle"]["adv"] + losses["face_cycle"]["adv"]
+        if losses["kld_weight"] > 0 and self.model.sigma:
+            losses["generators"] += losses["sketch_cycle"]["kld"] + losses["face_cycle"]["kld"]
         # Discriminator losses
         losses["discriminators"] = losses["sketch_cycle"]["disc_total"] + losses["face_cycle"]["disc_total"]
         # determine the accuracy of the discriminators
@@ -338,6 +396,24 @@ class Iterator(TemplateIterator):
         torch.save(state, checkpoint_path)
 
     def load(self, checkpoint_path):
+        state = torch.load(checkpoint_path)
+        self.model.netG_A.enc.load_state_dict(state['sketch_encoder'])
+        self.model.netG_B.dec.load_state_dict(state['sketch_decoder'])
+        self.model.netD_A.load_state_dict(state['sketch_discriminator'])
+        self.model.netG_B.enc.load_state_dict(state['face_encoder'])
+        self.model.netG_A.dec.load_state_dict(state['face_decoder'])
+        self.model.netD_B.load_state_dict(state['face_discriminator'])
+        self.optimizer_G.load_state_dict(state['optimizer_G'])
+        self.optimizer_D_A.load_state_dict(state['optimizer_D_A'])
+        self.optimizer_D_B.load_state_dict(state['optimizer_D_B'])
+
+        if self.add_latent_layer:
+            self.model.netG_A.latent_layer.load_state_dict(state['sketch_latent_layer'])
+            self.model.netG_B.latent_layer.load_state_dict(state['face_latent_layer'])
+            if self.only_latent_layer:
+                self.optimizer_Lin.load_state_dict(state['optimizer_Lin'])
+
+    def restore(self, checkpoint_path):
         state = torch.load(checkpoint_path)
         self.model.netG_A.enc.load_state_dict(state['sketch_encoder'])
         self.model.netG_B.dec.load_state_dict(state['sketch_decoder'])
