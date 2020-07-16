@@ -1,0 +1,47 @@
+# info for run
+code_root: null
+integrations:
+  wandb:
+    active: True
+    project: "Debug!"
+
+# Dataset info
+datasets:
+  train: data.data_loader.dataset.DatasetTrain
+  validation: data.data_loader.dataset.DatasetEval
+
+data:
+  data_root_face: /export/home/rhaecker/documents/sketch2face/data/data_sets/img_align_celeba/
+  data_root_sketch: /export/home/rhaecker/documents/sketch2face/data/data_sets/full_numpy_bitmap_face.npy
+  
+  shuffle: True
+  validation_split: 0.1
+  test_split: 0.1
+  transform:
+    resolution: 32
+    mirrow: False
+    crop_offset: 0
+
+# Meta Info
+explanation: "First wgan gp with face."
+debug_log_level: False
+#CUDA_VISIBLE_DEVICES: 8
+
+# Iterator info
+iterator: iterator.wgan_gp.Iterator
+model: model.wgan_gradient_penalty.WGAN_GP
+#load pretrained vaes for cycle gan model
+#load_models:
+#  face_path:
+#  sketch_path:
+
+
+model_type: "sketch"
+# face ; sketch
+
+batch_size: 64
+num_steps: 25000
+
+# Model info
+learning_rate: 0.0001
+random_seed: 10

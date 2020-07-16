@@ -6,11 +6,13 @@ from edflow.custom_logging import LogSingleton
 import numpy as np
 import torch.utils.data
 from model.modules import Transpose2dBlock, ExtraConvBlock, Conv2dBlock
+from torch.autograd import Variable
 
 class VAE_Model(nn.Module):
     def __init__(self,
             latent_dim, 
             min_channels,
+            max_channels,
             in_size, 
             in_channels, 
             out_size,
@@ -26,12 +28,13 @@ class VAE_Model(nn.Module):
             drop_rate_dec=None,
             bias_enc=False,
             bias_dec=False,
-            same_max_channels=True):
+            same_max_channels=False):
         super(VAE_Model, self).__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.logger = get_logger("VAE_Model")
         self.logger.debug("latent_dim: {}".format(latent_dim))
         self.logger.debug("min_channels: {}".format(min_channels))
+        self.logger.debug("max_channels: {}".format(max_channels))
         self.logger.debug("in_size: {}".format(in_size))
         self.logger.debug("in_channels: {}".format(in_channels))
         self.logger.debug("out_size: {}".format(out_size))
@@ -53,29 +56,29 @@ class VAE_Model(nn.Module):
         self.sigma = sigma
 
         enc_min_channels = dec_min_channels = min_channels
+        enc_max_channels = dec_max_channels = max_channels
         if same_max_channels:
             power = np.log2(in_size)
             enc_min_channels = int(2**(power - (np.log2(out_size) - np.log2(in_size)) - 2))
             self.logger.info("Adjusted min enc_min_channels to {} for max_channels of encoder and decoder to match.".format(enc_min_channels))
 
-        self.enc = VAE_Model_Encoder(latent_dim, enc_min_channels, in_size, in_channels, sigma, num_extra_conv_enc, BlockActivation, batch_norm_enc, drop_rate_enc, bias_enc)
-        self.dec = VAE_Model_Decoder(latent_dim, dec_min_channels, out_size, out_channels, num_extra_conv_dec, BlockActivation, FinalActivation, batch_norm_dec, drop_rate_dec, bias_dec)
-
+        self.enc = VAE_Model_Encoder(latent_dim, enc_min_channels, enc_max_channels, in_size, in_channels, sigma, num_extra_conv_enc, BlockActivation, batch_norm_enc, drop_rate_enc, bias_enc)
+        self.dec = VAE_Model_Decoder(latent_dim, dec_min_channels, enc_max_channels, out_size, out_channels, num_extra_conv_dec, BlockActivation, FinalActivation, batch_norm_dec, drop_rate_dec, bias_dec)
 
     def bottleneck(self, x):
-        norm_dist = torch.distributions.normal.Normal(torch.zeros([x.shape[0], self.latent_dim]), torch.ones([x.shape[0], self.latent_dim]))
-        eps = norm_dist.sample().to(self.device)
         if self.sigma:
-            mu  = x[:, :self.latent_dim]
-            var = torch.abs(x[:, self.latent_dim:]) + 0.00001
-            self.logger.debug("varitaional mu.shape: " + str(mu.shape))
-            self.logger.debug("varitaional var.shape: " + str(var.shape))
+            self.mu = x[:, :self.latent_dim]
+            self.logvar = x[:, self.latent_dim:]
+            self.std = self.logvar.mul(0.5).exp_()
+            self.logger.debug("varitaional mu.shape: " + str(self.mu.shape))
+            self.logger.debug("varitaional var.shape: " + str(self.std.shape))
         else:
-            mu  = x
-            var = 1
-            self.logger.debug("varitaional mu.shape: " + str(mu.shape))
+            self.mu  = x
+            self.std = torch.ones_like(x)
+            self.logger.debug("varitaional mu.shape: " + str(self.mu.shape))
+        eps = Variable(self.std.data.new(self.std.size()).normal_())
         # final latent representatione
-        x = mu + var * eps
+        x = self.mu + self.std * eps
         return x
 
     def forward(self, x):
@@ -90,6 +93,7 @@ class VAE_Model_Encoder(nn.Module):
     def __init__(self,
         latent_dim,
         min_channels,
+        max_channels,
         in_size,
         in_channels,
         sigma=False,
@@ -104,7 +108,11 @@ class VAE_Model_Encoder(nn.Module):
 
         layers = []
         latent_dim = 2*latent_dim if sigma else latent_dim
-        channel_numbers = [in_channels] + list(min_channels * 2**np.arange(np.log2(in_size)).astype(np.int)) + [latent_dim]
+        
+        print("np.log2(in_size)",np.log2(in_size))
+        print("np.ones(np.log2(in_size), dtype=int) * int(max_channels)",np.ones(int(np.log2(in_size)), dtype=int) * int(max_channels))
+        print("min_channels * 2**np.arange(np.log2(in_size)).astype(np.int)",min_channels * 2**np.arange(np.log2(in_size)).astype(np.int))
+        channel_numbers = [in_channels] + list( np.minimum( min_channels * 2**np.arange(np.log2(in_size)).astype(np.int), np.ones(int(np.log2(in_size)), dtype=int) * int(max_channels) )) + [latent_dim]
         for i in range(len(channel_numbers)-1):
             in_ch = channel_numbers[i]
             out_ch = channel_numbers[i+1]
@@ -125,6 +133,7 @@ class VAE_Model_Decoder(nn.Module):
     def __init__(self,
         latent_dim,
         min_channels,
+        max_channels,
         out_size,
         out_channels,
         num_extra_conv=0,
@@ -138,7 +147,7 @@ class VAE_Model_Decoder(nn.Module):
         self.logger = get_logger("Decoder")
 
         layers = []
-        channel_numbers = [latent_dim] + list(min_channels * 2**np.arange(np.log2(out_size)-2)[::-1].astype(np.int))
+        channel_numbers = [latent_dim] + list(np.minimum( min_channels * 2**np.arange(np.log2(out_size)-2)[::-1].astype(np.int), np.ones( int(np.log2(out_size)-2), dtype=int) * int(max_channels)) )
         for i in range(len(channel_numbers)-1):
             in_ch = channel_numbers[i]
             out_ch = channel_numbers[i+1]

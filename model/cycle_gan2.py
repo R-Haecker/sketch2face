@@ -12,8 +12,10 @@ class CycleGAN_Model(nn.Module):
         self.logger = get_logger("CycleGAN")
         self.output_names = ['real_A', 'fake_B', 'rec_A', 'real_B', 'fake_A', 'rec_B']
         self.cycle = "sketch" in self.config["model_type"] and "face" in self.config["model_type"]
+        self.sigma = self.config['variational']['sigma']
 
-        latent_dim = self.config['conv']['n_channel_max']
+        latent_dim = self.config["latent_dim"]
+        max_channels= self.config['conv']['n_channel_max']
         min_channels = self.config['conv']['n_channel_start']
         sketch_shape = [32, 1]
         face_shape = [self.config['data']['transform']['resolution'], 3]
@@ -29,14 +31,14 @@ class CycleGAN_Model(nn.Module):
         bias_dec = self.config['bias']['dec']
 
         if self.cycle:
-            self.netG_A = VAE_Model(latent_dim, min_channels, *sketch_shape, *face_shape,
+            self.netG_A = VAE_Model(latent_dim, min_channels, max_channels, *sketch_shape, *face_shape,
                                     sigma, num_extra_conv_sketch, num_extra_conv_face, 
                                     BlockActivation, FinalActivation,
                                     batch_norm_enc, batch_norm_dec,
                                     drop_rate_enc, drop_rate_dec,
                                     bias_enc, bias_dec)
             self.netD_A = Discriminator_sketch()
-            self.netG_B = VAE_Model(latent_dim, min_channels, *face_shape, *sketch_shape,
+            self.netG_B = VAE_Model(latent_dim, min_channels, max_channels, *face_shape, *sketch_shape,
                                     sigma, num_extra_conv_face, num_extra_conv_sketch, 
                                     BlockActivation, FinalActivation,
                                     batch_norm_enc, batch_norm_dec,
@@ -47,7 +49,7 @@ class CycleGAN_Model(nn.Module):
             sketch = True if "sketch" in self.config["model_type"] else False
             shapes = sketch_shape if "sketch" in self.config["model_type"] else face_shape
             num_extra_conv = num_extra_conv_sketch if "sketch" in self.config["model_type"] else num_extra_conv_face
-            self.netG = VAE_Model(latent_dim, min_channels, *shapes, *shapes,
+            self.netG = VAE_Model(latent_dim, min_channels, max_channels, *shapes, *shapes,
                                     sigma, num_extra_conv, num_extra_conv, 
                                     BlockActivation, FinalActivation,
                                     batch_norm_enc, batch_norm_dec,

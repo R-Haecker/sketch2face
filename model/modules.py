@@ -117,7 +117,7 @@ class LinLayers(nn.Module):
 class Transpose2dBlock(nn.Module):
     def __init__(self, in_channels, out_channels, Activation=nn.ReLU(), batch_norm=True, drop_rate=None, bias=False, kernel_size=4, stride=2, padding=1):
         super(Transpose2dBlock, self).__init__()
-        layers = [nn.ConvTranspose2d( in_channels, out_channels, kernel_size, stride, padding, bias=False)]
+        layers = [nn.ConvTranspose2d( in_channels, out_channels, kernel_size, stride, padding, bias=bias)]
         if batch_norm:
             layers.append(nn.BatchNorm2d(out_channels))
         if drop_rate is not None:
