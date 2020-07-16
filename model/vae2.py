@@ -5,7 +5,7 @@ from edflow import get_logger
 from edflow.custom_logging import LogSingleton
 import numpy as np
 import torch.utils.data
-from model.modules import Transpose2dBlock, ExtraConvBlock, Conv2dBlock
+from model.modules import Transpose2dBlock, ExtraConvBlock, Conv2dBlock, LinLayers
 from torch.autograd import Variable
 
 class VAE_Model(nn.Module):
@@ -28,7 +28,8 @@ class VAE_Model(nn.Module):
             drop_rate_dec=None,
             bias_enc=False,
             bias_dec=False,
-            same_max_channels=False):
+            same_max_channels=False,
+            num_latent_layer=0):
         super(VAE_Model, self).__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.logger = get_logger("VAE_Model")
@@ -51,6 +52,7 @@ class VAE_Model(nn.Module):
         self.logger.debug("bias_enc: {}".format(bias_enc))
         self.logger.debug("bias_dec: {}".format(bias_dec))
         self.logger.debug("same_max_channels: {}".format(same_max_channels))
+        self.logger.debug("num_latent_layer: {}".format(num_latent_layer))
 
         self.latent_dim = latent_dim
         self.sigma = sigma
@@ -63,7 +65,14 @@ class VAE_Model(nn.Module):
             self.logger.info("Adjusted min enc_min_channels to {} for max_channels of encoder and decoder to match.".format(enc_min_channels))
 
         self.enc = VAE_Model_Encoder(latent_dim, enc_min_channels, enc_max_channels, in_size, in_channels, sigma, num_extra_conv_enc, BlockActivation, batch_norm_enc, drop_rate_enc, bias_enc)
-        self.dec = VAE_Model_Decoder(latent_dim, dec_min_channels, enc_max_channels, out_size, out_channels, num_extra_conv_dec, BlockActivation, FinalActivation, batch_norm_dec, drop_rate_dec, bias_dec)
+        self.dec = VAE_Model_Decoder(latent_dim, dec_min_channels, dec_max_channels, out_size, out_channels, num_extra_conv_dec, BlockActivation, FinalActivation, batch_norm_dec, drop_rate_dec, bias_dec)
+
+        self.add_linear_layers = False
+        if num_latent_layer > 0:
+                self.add_linear_layers = True
+                self.latent_layer = LinLayers(num_latent_layer, self.latent_dim, self.sigma)
+                self.logger.info("Added {} linear layers layers".format(num_latent_layer))
+
 
     def bottleneck(self, x):
         if self.sigma:
@@ -83,6 +92,8 @@ class VAE_Model(nn.Module):
 
     def forward(self, x):
         x = self.enc(x)
+        if self.add_linear_layers:
+            x = self.latent_layer(x)
         x = x.reshape(x.shape[:-2])
         x = self.bottleneck(x)
         x = self.dec(x)

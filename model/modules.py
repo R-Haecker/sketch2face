@@ -90,9 +90,8 @@ class One_sided_padding(nn.Module):
       return F.pad(x, (0,self.pad,0,self.pad), mode='constant', value=0)
 
 class LinLayers(nn.Module):
-    def __init__(self, num_lin_layers, latent_dim, sigma, batch_size):
+    def __init__(self, num_lin_layers, latent_dim, sigma):
         super(LinLayers,self).__init__()
-        self.batch_size = batch_size
         self.num_nodes = latent_dim 
         if sigma:
             self.num_nodes *= 2
@@ -108,7 +107,7 @@ class LinLayers(nn.Module):
         if len(x.shape) != 2:
             original_shape = x.shape
             change_shape = True
-            x = x.reshape(self.batch_size, self.num_nodes)
+            x = x.reshape(original_shape[0], self.num_nodes)
         x = self.layers(x)
         if change_shape:
             x = x.reshape(*original_shape)
