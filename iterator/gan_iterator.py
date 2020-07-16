@@ -5,6 +5,7 @@ import random
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+from torch.autograd import grad as torch_grad
 
 from edflow import TemplateIterator, get_logger
 from edflow.hooks.checkpoint_hooks.common import get_latest_checkpoint
@@ -40,25 +41,74 @@ class Iterator(TemplateIterator):
         
         self.real_labels = torch.ones(self.batch_size, device=self.device)
         self.fake_labels = torch.zeros(self.batch_size, device=self.device)
+        self.steps = 0
     
     def set_random_state(self):
         np.random.seed(self.config["random_seed"])
         torch.random.manual_seed(self.config["random_seed"])
 
+    def kld_update(self, weight, steps, delay, slope_steps):
+        output = 0
+        if steps >= delay and steps < slope_steps+delay:
+            output = weight*(1 - np.cos((steps-delay)*np.pi/slope_steps))/2
+        if steps > slope_steps+delay:
+            output = weight
+        return output
+
+    def _gradient_penalty(self, real_data, generated_data):
+        batch_size = real_data.size()[0]
+
+        # Calculate interpolation
+        alpha = torch.rand(batch_size, 1, 1, 1)
+        alpha = alpha.expand_as(real_data).to(self.device)
+        interpolated = alpha * real_data + (1 - alpha) * generated_data
+        interpolated = Variable(interpolated, requires_grad=True).to(self.device)
+        #if self.use_cuda:
+        #    interpolated = interpolated.cuda()
+
+        # Calculate probability of interpolated examples
+        prob_interpolated = self.model.netD(interpolated)
+
+        # Calculate gradients of probabilities with respect to examples
+        gradients = torch_grad(outputs=prob_interpolated, inputs=interpolated,
+                               grad_outputs=torch.ones(prob_interpolated.size()).to(self.device),
+                               create_graph=True, retain_graph=True)[0]
+
+        # Gradients have shape (batch_size, num_channels, img_width, img_height),
+        # so flatten to easily take norm per example in batch
+        gradients = gradients.view(batch_size, -1)
+
+        # Derivatives of the gradient close to 0 can cause problems because of
+        # the square root, so manually calculate norm and add epsilon
+        gradients_norm = torch.sqrt(torch.sum(gradients ** 2, dim=1) + 1e-12)
+
+        # Return gradient penalty
+        return ((gradients_norm - 1) ** 2).mean()
+
     def criterion(self, model_input, model_output):
         """This function returns a dictionary with all neccesary losses for the model."""
-        
         reconstruction_criterion = get_loss_funct(self.config["losses"]["reconstruction_loss"])
         rec_weight = self.config["losses"]["reconstruction_weight"]
         adversarial_criterion = get_loss_funct(self.config["losses"]["adversarial_loss"])
         adv_weight = self.config["losses"]["adversarial_weight"]
+        gp_weight = self.config["losses"]["gp_weight"] if "gp_weight" in self.config["losses"] else 0
         losses = {}
-
+        
         losses["generator"] = {}
+        
+        kld_weight = self.config["losses"]["kld"]["weight"] if "kld" in self.config["losses"] else 0
+        kld_delay = self.config["losses"]['kld']["delay"] if "delay" in self.config["losses"]['kld'] else 0
+        kld_slope_steps = self.config["losses"]['kld']["slope_steps"] if "slope_steps" in self.config["losses"]['kld'] else 0
+        losses["generator"]["kld_weight"] = self.kld_update(kld_weight, self.steps, kld_delay, kld_slope_steps)
+        
         losses["generator"]["rec"] = rec_weight * torch.mean( reconstruction_criterion( model_output, model_input))
         losses["generator"]["adv"] = adv_weight * torch.mean( adversarial_criterion( self.model.netD(model_output).view(-1), self.real_labels))
         losses["generator"]["total"] = losses["generator"]["rec"] + losses["generator"]["adv"]
-
+        if kld_weight > 0 and self.model.sigma:
+            losses["generator"]["kld"] = losses["generator"]["kld_weight"]* -0.5 * torch.mean(1 + self.model.netG.logvar - self.model.netG.mu.pow(2) - self.model.netG.logvar.exp())
+            losses["generator"]["total"] += losses["generator"]["kld"]
+        
+    
         netD_real_outputs = self.model.netD( model_input.detach()).view(-1)
         netD_fake_outputs = self.model.netD( model_output.detach()).view(-1)
         losses["discriminator"] = {}
@@ -67,6 +117,9 @@ class Iterator(TemplateIterator):
         losses["discriminator"]["fake"] = adversarial_criterion(netD_fake_outputs, self.fake_labels)
         losses["discriminator"]["real"] = adversarial_criterion(netD_real_outputs, self.real_labels)
         losses["discriminator"]["total"] = losses["discriminator"]["fake"] + losses["discriminator"]["real"]
+        if gp_weight > 0:
+            losses["discriminator"]["gp"] = gp_weight * self._gradient_penalty(model_input, model_output.detach())
+            losses["discriminator"]["total"] += losses["discriminator"]["gp"]
 
         self.logger.debug('netD_real_outputs: {}'.format(netD_real_outputs))
         self.logger.debug('netD_fake_outputs: {}'.format(netD_fake_outputs))
@@ -126,7 +179,7 @@ class Iterator(TemplateIterator):
                 losses["discriminator"]["total"].backward()
                 self.optimizer_D.step()
                 losses["discriminator"]["update"] = 1
-
+            self.steps += 1
         def log_op():
             # This function will always execute
             logs = self.prepare_logs(losses, model_input, model_output)

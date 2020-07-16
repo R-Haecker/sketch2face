@@ -54,7 +54,7 @@ class Iterator(TemplateIterator):
 
         losses["generator"] = {}
         if self.config["losses"]["adversarial_loss"] != "wasserstein":
-            torch.mean(adversarial_criterion( self.model.netD(model_output).view(-1), self.real_labels))  
+            losses["generator"]["adv"] = torch.mean(adversarial_criterion( self.model.netD(model_output).view(-1), self.real_labels))  
         else:
             losses["generator"]["adv"] = -torch.mean(self.model.netD(model_output).view(-1))
         
