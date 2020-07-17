@@ -16,6 +16,8 @@ from edflow import get_logger
 from edflow.custom_logging import LogSingleton
 import numpy as np
 
+from model.vae2 import VAE_Model
+
 from model.util import (
     get_tensor_shapes,
     get_act_func,
@@ -69,9 +71,9 @@ class Discriminator(torch.nn.Module):
         # There is not good & fast implementation of layer normalization --> using per instance normalization nn.InstanceNorm2d()
         modules = []
         if input_resolution != 32:
-            dif = np.log2(input_resolution) - np.log2(32)
+            dif = int(np.log2(input_resolution) - np.log2(32))
             assert input_resolution > 32, "input_resolution has to be equal or bigger than 32."
-            assert dif.is_integer(), "log_2 (Input resolution) has to be an integer." 
+            print("Adding " + str(dif) + " extra layers to discriminator")
             for i in range(dif):
                 modules.append(nn.Conv2d(in_channels=input_channels, out_channels=256, kernel_size=4, stride=2, padding=1))
                 modules.append(nn.InstanceNorm2d(256, affine=True))
@@ -209,7 +211,7 @@ class WGAN_GP(nn.Module):
 
 class CycleWGAN_GP_VAE(nn.Module):
     def __init__(self, config):
-        super(WGAN_GP, self).__init__()
+        super(CycleWGAN_GP_VAE, self).__init__()
         
         if "debug_log_level" in config and config["debug_log_level"]:
             LogSingleton.set_log_level("debug")
@@ -222,8 +224,8 @@ class CycleWGAN_GP_VAE(nn.Module):
         self.cycle = "sketch" in self.config["model_type"] and "face" in self.config["model_type"]
 
         latent_dim = self.config["latent_dim"]
-        max_channels= self.config['conv']['n_channel_max']
         min_channels = self.config['conv']['n_channel_start']
+        max_channels= self.config['conv']['n_channel_max']
         sketch_shape = [32, 1]
         face_shape = [self.config['data']['transform']['resolution'], 3]
         sigma = self.config['variational']['sigma']
@@ -236,55 +238,44 @@ class CycleWGAN_GP_VAE(nn.Module):
         drop_rate_dec = self.config['dropout']['dec_rate']
         bias_enc = self.config['bias']['enc']
         bias_dec = self.config['bias']['dec']
-
-
-        
-        
-        if self.config["model_type"] == "face": self.C = 3
-        if self.config["model_type"] == "sketch": self.C = 1
+        num_latent_layer = self.config['variational']['num_latent_layer']
         
         if self.cycle:
             print("WGAN_GradientPenaltynot implemented yet")
+            self.forward = self.cyle_forward
         else:
-        VAE_Model(
-            latent_dim = self.config["latent_dim"],
-            min_channels = self.config["conv"]["n_channel_start"],
-            max_channels = self.config["conv"]["n_channel_max"],
-            in_size, 
-            in_channels, 
-            out_size,
-            out_channels,
-            sigma=False,
-            num_extra_conv_enc=0,
-            num_extra_conv_dec=0,
-            BlockActivation=nn.ReLU(),
-            FinalActivation=nn.Tanh(),
-            batch_norm_enc=True,
-            batch_norm_dec=True,
-            drop_rate_enc=None,
-            drop_rate_dec=None,
-            bias_enc=False,
-            bias_dec=False,
-            same_max_channels=True)
+            shapes = sketch_shape if "sketch" in self.config["model_type"] else face_shape
+            num_extra_conv = num_extra_conv_sketch if "sketch" in self.config["model_type"] else num_extra_conv_face
+        
+            self.netG = VAE_Model(
+                latent_dim = latent_dim,
+                min_channels = min_channels,
+                max_channels = max_channels,
+                in_size = shapes[0], 
+                in_channels = shapes[1],
+                out_size = shapes[0],
+                out_channels = shapes[1],
+                sigma=sigma,
+                num_extra_conv_enc=num_extra_conv,
+                num_extra_conv_dec=num_extra_conv,
+                BlockActivation=BlockActivation,
+                FinalActivation=FinalActivation,
+                batch_norm_enc=batch_norm_enc,
+                batch_norm_dec=batch_norm_dec,
+                drop_rate_enc=drop_rate_enc,
+                drop_rate_dec=drop_rate_dec,
+                bias_enc=bias_enc,
+                bias_dec=bias_dec,
+                same_max_channels=False, 
+                num_latent_layer=num_latent_layer)
+            self.netD = Discriminator_sketch() if "sketch" in self.config["model_type"] else Discriminator_face(input_resolution=face_shape[0])
+            self.forward = self.VAE_forward
 
-        self.D = Discriminator(input_channels = self.C)
+    def sample(self, x):
+        return self.netG.dec(x)
 
-        # WGAN values from paper
-        self.learning_rate = 1e-4
-        self.b1 = 0.5
-        self.b2 = 0.999
-        self.batch_size = 64
-
-        self.learning_rate = config["learning_rate"]
-        self.batch_size = self.config["batch_size"]
-
-        # WGAN_gradient penalty uses ADAM
-        self.d_optimizer = optim.Adam(self.D.parameters(), lr=self.learning_rate, betas=(self.b1, self.b2))
-        self.g_optimizer = optim.Adam(self.G.parameters(), lr=self.learning_rate, betas=(self.b1, self.b2))
-
-        # Set the logger
-        self.number_of_images = 10
-
-        self.generator_iters = self.config["num_steps"]
-        self.critic_iter = 5
-        self.lambda_term = 10
+    def VAE_forward(self, x):
+        return self.netG(x)
+    
+    def cycle_forward(self, real_A=None, real_B=None):
+        print("Not implemented yet")

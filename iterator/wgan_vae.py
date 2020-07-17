@@ -19,24 +19,26 @@ from iterator.util import (
     weights_init
 ) 
 
+# TODO implemet KLD
+# TODO implemet sampling while training
+
 class Iterator(TemplateIterator):
     def __init__(self, config, root, model, *args, **kwargs):
         super().__init__(config, root, model, *args, **kwargs)
         self.logger = get_logger("Iterator")
         assert config["model_type"] != "sketch2face", "This iterator does not support sketch2face models only single GAN models supported."
-        assert self.config["model"] == "model.cycle_gan2.CycleGAN_Model", "This iterator only supports the model: cycle_gan2.CycleGAN_Model"
+        assert self.config["model"] == "model.wgan_gradient_penalty.CycleWGAN_GP_VAE", "This iterator only supports the model: wgan_gradient_penalty.CycleWGAN_GP_VAE"
         # get the config and the logger
         self.config = config
         self.set_random_state()
         self.batch_size = config['batch_size']
         # Check if cuda is available
         self.device = self.set_gpu()
-        self.check_cuda(bool(self.device == torch.device("cuda")))
         self.logger.debug(f"Model will pushed to the device: {self.device}")
         # Log the architecture of the model
         self.logger.debug(f"{model}")
-        self.G = self.model.netG
-        self.D = self.model.NetD
+        self.G = self.model.netG.to(self.device)
+        self.D = self.model.netD.to(self.device)
         # WGAN values from paper
         self.b1 = 0.5
         self.b2 = 0.999
@@ -50,11 +52,8 @@ class Iterator(TemplateIterator):
         self.number_of_images = 10
 
         self.generator_iters = self.config["num_steps"]
-        self.critic_iter = 5
-        self.lambda_term = 10
-
-        self.cur_iter = 0
-    
+        self.critic_iter = self.config["losses"]["update_disc"] if "update_disc" in self.config["losses"] else 5
+        
     def set_gpu(self):
         """Move the model to device cuda if available and use the specified GPU"""
         if "CUDA_VISIBLE_DEVICES" in self.config:
@@ -69,117 +68,104 @@ class Iterator(TemplateIterator):
         torch.random.manual_seed(self.config["random_seed"])
 
     def get_torch_variable(self, arg):
-        if self.cuda:
-            return Variable(arg).cuda(self.cuda_index)
-        else:
-            return Variable(arg)
-
-    def check_cuda(self, cuda_flag=False):
-        print(cuda_flag)
-        if cuda_flag:
-            self.cuda_index = 0
-            self.cuda = True
-            self.D.cuda(self.cuda_index)
-            self.G.cuda(self.cuda_index)
-            print("Cuda enabled flag: {}".format(self.cuda))
-        else:
-            self.cuda = False
-
-    def criterion(input_images, )
-
-    def step_op(self, model, **kwargs):
+        return Variable(arg).to(self.device)
+        
+    def D_criterion(self, input_images):
         losses = {}
         losses["discriminator"] = {}
-        losses["generator"] = {}
-        losses["generator"]["update"] = 0
-        losses["generator"]["adv"] = 0
-        losses["generator"]["total"] = losses["generator"]["adv"]
-
+        gp_weight = self.config["losses"]["gp_weight"] if "gp_weight" in self.config["losses"] else 10
         # Requires grad, Generator requires_grad = False
         for p in self.D.parameters():
             p.requires_grad = True
-
-        one = torch.tensor(1, dtype=torch.float)
-        mone = one * -1
-        if self.cuda:
-            one = one.cuda(self.cuda_index)
-            mone = mone.cuda(self.cuda_index)
-
-        d_loss_real = 0
-        d_loss_fake = 0
-        Wasserstein_D = 0
         # Train Dicriminator forward-loss-backward-update self.critic_iter times while 1 Generator forward-loss-backward-update
-        self.D.zero_grad()
+        # Discriminator #
+        '''
+        at the moment no sampling
+        # Train with fake images
+        z = self.get_torch_variable(torch.randn(self.batch_size, 100, 1, 1))
+        generated_images = self.G.sample(z)
+        '''
+        # Train with real images
+        losses["discriminator"]["real"] = self.D(input_images).mean()
+        #losses["discriminator"]["real"] = d_loss_real
+        output_images = self.G(input_images)
+        losses["discriminator"]["fake"] = self.D(output_images).mean()
+        #d_loss_fake
+        
+        # Train with gradient penalty
+        losses["discriminator"]["gradient_penalty"] = gp_weight * self.calculate_gradient_penalty(input_images.data, output_images.data)
+        
+        losses["discriminator"]["total"] = losses["discriminator"]["fake"] - losses["discriminator"]["real"] + losses["discriminator"]["gradient_penalty"]
+        losses["discriminator"]["Wasserstein_D"] = losses["discriminator"]["real"] - losses["discriminator"]["fake"]
+        losses["discriminator"]["outputs_real"] = losses["discriminator"]["real"]
+        losses["discriminator"]["outputs_fake"] = losses["discriminator"]["fake"]
+        losses["discriminator"]["update"] = 1
+        return losses, output_images
 
+    def G_criterion(self, input_images):
+        losses = {}
+        losses["generator"] = {}
+        losses["generator"]["update"] = 0
+        losses["generator"]["adv"]    = 0
+        losses["generator"]["rec"]    = 0
+        losses["generator"]["total"]  = 0
+        self.update_G = bool(((self.get_global_step())%self.critic_iter) == (self.critic_iter-1))
+        if self.update_G:
+            # Generator update
+            reconstruction_criterion = get_loss_funct(self.config["losses"]["reconstruction_loss"])
+            rec_weight = self.config["losses"]["reconstruction_weight"] if "reconstruction_weight" in self.config["losses"] else 1
+            adv_weight = self.config["losses"]["adversarial_weight"] if "adversarial_weight" in self.config["losses"] else 1
+            
+            losses["generator"]["update"] = 1
+            for p in self.D.parameters():
+                    p.requires_grad = False  # to avoid computation
+            self.G.zero_grad()    
+            '''
+            maybe sampling later
+            # compute loss with fake images
+            z = self.get_torch_variable(torch.randn(self.batch_size, 100, 1, 1))
+            '''
+            output_images = self.G(input_images)
+            losses["generator"]["rec"] = rec_weight * torch.mean( reconstruction_criterion( output_images, input_images))
+            losses["generator"]["adv"] = adv_weight * self.D(output_images).mean()
+            
+            losses["generator"]["total"] = losses["generator"]["adv"] + losses["generator"]["rec"]
+        return losses
+
+    def step_op(self, model, **kwargs):
         input_images = kwargs["image_{}".format(self.config["model_type"])]
         input_images = torch.from_numpy(input_images)
         if (input_images.size()[0] != self.batch_size):
             self.logger.error("Batch size is not as expected")
-
-        #z = torch.rand((self.batch_size, 100, 1, 1))
-
         input_images = self.get_torch_variable(input_images) 
-        
-        # Train discriminator
-        # WGAN - Training discriminator more iterations than generator
-        # Train with real images
-        d_loss_real = self.D(input_images).mean()
-        
-        losses["discriminator"]["real"] = d_loss_real
-        # Train with fake images
-        z = self.get_torch_variable(torch.randn(self.batch_size, 100, 1, 1))
-        
+        one = torch.tensor(1, dtype=torch.float)
+        mone = one * -1
+        one = one.to(self.device)
+        mone = mone.to(self.device)
+    
+        self.D.zero_grad()
+        d_losses, output_images = self.D_criterion(input_images)
+        self.G.zero_grad()
+        g_losses = self.G_criterion(input_images)
+        losses = dict(d_losses, **g_losses)
 
-        output_images = self.G(input_images)
-        d_loss_fake = self.D(output_images).mean()
-        
-        losses["discriminator"]["fake"] = d_loss_fake
-        
-        # Train with gradient penalty
-        gradient_penalty = self.calculate_gradient_penalty(input_images.data, output_images.data)
-        
-        losses = self.criterion()
-        
-
-        losses["discriminator"]["gradient_penalty"] = gradient_penalty
-        
-        d_loss = d_loss_fake - d_loss_real + gradient_penalty
-        Wasserstein_D = d_loss_real - d_loss_fake
-        losses["discriminator"]["total"] = d_loss
-        losses["discriminator"]["Wasserstein_D"] = Wasserstein_D
-        losses["discriminator"]["outputs_real"] = losses["discriminator"]["real"]
-        losses["discriminator"]["outputs_fake"] = losses["discriminator"]["fake"]
-        losses["discriminator"]["update"] = 1
-        
         def train_op():
-            d_loss_real.backward(mone)
-            d_loss_fake.backward(one)
-
-            gradient_penalty.backward()
-
+            #self.D.zero_grad()
+            losses["discriminator"]["real"].backward(mone)
+            losses["discriminator"]["fake"].backward(one)
+            losses["discriminator"]["gradient_penalty"].backward()
             self.d_optimizer.step()
-            self.logger.info(f'  Discriminator loss_fake: {d_loss_fake}, loss_real: {d_loss_real}')
-        
-            self.cur_iter = (self.cur_iter +1)%self.critic_iter
-            if self.cur_iter == 0:
-                # Generator update
-                losses["generator"]["update"] = 1
+            
+            if self.update_G:
+                '''
                 for p in self.D.parameters():
                     p.requires_grad = False  # to avoid computation
-
                 self.G.zero_grad()
-                # train generator
-                # compute loss with fake images
-                z = self.get_torch_variable(torch.randn(self.batch_size, 100, 1, 1))
-                output_images = self.G(z)
-                g_loss = self.D(output_images)
-                g_loss = g_loss.mean()
-                losses["generator"]["adv"] = g_loss
-                g_loss.backward(mone)
-                g_cost = -g_loss
+                '''
+                
+                losses["generator"]["rec"].backward(one,retain_graph=True)
+                losses["generator"]["adv"].backward(mone)
                 self.g_optimizer.step()
-                self.logger.info(f'Generator g_loss: {g_loss}')
-                losses["generator"]["total"] = losses["generator"]["adv"]
 
         def log_op():
             logs = self.prepare_logs(losses, input_images, output_images)
@@ -225,17 +211,11 @@ class Iterator(TemplateIterator):
         self.logger.debug("real_images.shape: " + str(real_images.shape))
         self.logger.debug("fake_images.shape: " + str(output_images.shape))
         self.logger.debug("eta.shape: " + str(eta.shape))
-        if self.cuda:
-            eta = eta.cuda(self.cuda_index)
-        else:
-            eta = eta
-
+        eta = eta.to(self.device)
+        
         interpolated = eta * real_images + ((1 - eta) * output_images)
 
-        if self.cuda:
-            interpolated = interpolated.cuda(self.cuda_index)
-        else:
-            interpolated = interpolated
+        interpolated = interpolated.to(self.device)
 
         # define it to calculate gradient
         interpolated = Variable(interpolated, requires_grad=True)
@@ -246,11 +226,10 @@ class Iterator(TemplateIterator):
         # calculate gradients of probabilities with respect to examples
         gradients = autograd.grad(outputs=prob_interpolated, inputs=interpolated,
                                grad_outputs=torch.ones(
-                                   prob_interpolated.size()).cuda(self.cuda_index) if self.cuda else torch.ones(
-                                   prob_interpolated.size()),
+                                   prob_interpolated.size()).to(self.device),
                                create_graph=True, retain_graph=True)[0]
 
-        grad_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * self.lambda_term
+        grad_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
         return grad_penalty
 
     def save(self, checkpoint_path):
@@ -261,13 +240,6 @@ class Iterator(TemplateIterator):
         state["g_optimizer"] = self.g_optimizer.state_dict()
         torch.save(state, checkpoint_path)
         self.logger.info('Models saved')
-    
-    def load(self, checkpoint_path):
-        state = torch.load(checkpoint_path)
-        self.G.load_state_dict(state["generator"])
-        self.D.load_state_dict(state["discriminator"])
-        self.d_optimizer.load_state_dict(state["d_optimizer"])
-        self.g_optimizer.load_state_dict(state["g_optimizer"])
         
     def restore(self, checkpoint_path):
         state = torch.load(checkpoint_path)

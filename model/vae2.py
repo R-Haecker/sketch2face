@@ -119,10 +119,6 @@ class VAE_Model_Encoder(nn.Module):
 
         layers = []
         latent_dim = 2*latent_dim if sigma else latent_dim
-        
-        print("np.log2(in_size)",np.log2(in_size))
-        print("np.ones(np.log2(in_size), dtype=int) * int(max_channels)",np.ones(int(np.log2(in_size)), dtype=int) * int(max_channels))
-        print("min_channels * 2**np.arange(np.log2(in_size)).astype(np.int)",min_channels * 2**np.arange(np.log2(in_size)).astype(np.int))
         channel_numbers = [in_channels] + list( np.minimum( min_channels * 2**np.arange(np.log2(in_size)).astype(np.int), np.ones(int(np.log2(in_size)), dtype=int) * int(max_channels) )) + [latent_dim]
         for i in range(len(channel_numbers)-1):
             in_ch = channel_numbers[i]
