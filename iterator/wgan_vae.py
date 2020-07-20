@@ -65,6 +65,12 @@ class Iterator(TemplateIterator):
 
     def get_torch_variable(self, arg):
         return Variable(arg).to(self.device)
+    
+    def generate_from_sample(self):
+        self.logger.debug("Using samples for training")
+        z = torch.randn(self.batch_size, self.config["latent_dim"]).to(self.device)
+        self.generated_images = self.netG.dec(z)
+        return self.generated_images
         
     def D_criterion(self, input_images):
         losses = {}
@@ -75,12 +81,8 @@ class Iterator(TemplateIterator):
             p.requires_grad = True
         # Train Dicriminator forward-loss-backward-update self.critic_iter times while 1 Generator forward-loss-backward-update
         # Discriminator #
-        '''
-        at the moment no sampling
-        # Train with fake images
-        z = self.netGet_torch_variable(torch.randn(self.batch_size, 100, 1, 1))
-        generated_images = self.netG.sample(z)
-        '''
+        
+        
         # Train with real images
         losses["discriminator"]["real"] = self.netD(input_images).mean()
         #losses["discriminator"]["real"] = d_loss_real
@@ -95,6 +97,15 @@ class Iterator(TemplateIterator):
         losses["discriminator"]["Wasserstein_D"] = losses["discriminator"]["real"] - losses["discriminator"]["fake"]
         losses["discriminator"]["outputs_real"] = losses["discriminator"]["real"]
         losses["discriminator"]["outputs_fake"] = losses["discriminator"]["fake"]
+
+        if "sample" in self.config["losses"] and self.config["losses"]["sample"]:
+            self.logger.debug("Using samples for training")
+            z = torch.randn(self.batch_size, self.config["latent_dim"]).to(self.device)
+            self.generated_images = self.netG.dec(z)
+            losses["discriminator"]["sample"] = self.netD(self.generated_images.detach()).mean()
+            losses["discriminator"]["total"] += losses["discriminator"]["sample"]
+            losses["discriminator"]["outputs_sample"] = losses["discriminator"]["sample"]
+        
         losses["discriminator"]["update"] = 1
         return losses, output_images
 
@@ -131,7 +142,13 @@ class Iterator(TemplateIterator):
             losses["generator"]["adv"] = adv_weight * self.netD(output_images).mean()
             
             losses["generator"]["total"] = losses["generator"]["rec"] - losses["generator"]["adv"] + losses["generator"]["kld"]
+
+            if "sample" in self.config["losses"] and self.config["losses"]["sample"]:  
+                losses["generator"]["sample"] = self.netD(self.generated_images).mean()
+                losses["generator"]["total"] -= adv_weight * losses["generator"]["sample"]  
+
             self.losses_generator = losses["generator"]
+
         else:
             losses["generator"] = self.losses_generator
             losses["generator"]["update"] = 0
