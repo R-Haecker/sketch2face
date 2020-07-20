@@ -20,12 +20,12 @@ data:
   validation_split: 0.1
   test_split: 0.1
   transform:
-    resolution: 64
+    resolution: 32
     mirrow: False
     crop_offset: 0
 
 # Meta Info
-explanation: "First vae wgan gp with face."
+explanation: "vae wgan gp with sketch very big recon loss."
 debug_log_level: False
 #CUDA_VISIBLE_DEVICES: 8
 
@@ -37,13 +37,21 @@ model: model.wgan_gradient_penalty.CycleWGAN_GP_VAE
 #  face_path:
 #  sketch_path:
 
+optimization:
+  reduce_lr: 0.3
+  D_lr_factor: 0.2
+
 losses:
   reconstruction_loss: "L2"
-  reconstruction_weight: 15.0
-  adversarial_loss: "BCE"
+  reconstruction_weight: 5000.0
   adversarial_weight: 1.0
   gp_weight: 10
   update_disc: 5
+  kld:
+    weight: 5000.0
+    delay: 10000
+    slope_steps: 5000
+
 
 variational:
   sigma: True
@@ -67,7 +75,7 @@ dropout:
   enc_rate: 0
   disc_rate: 0
 
-model_type: "face"
+model_type: "sketch"
 # face ; sketch
 
 batch_size: 64

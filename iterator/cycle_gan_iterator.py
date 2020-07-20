@@ -337,7 +337,7 @@ class Iterator(TemplateIterator):
         # convert to numpy
         walk(logs, conditional_convert2np, inplace=True)
         return logs
-
+    # update learning rate does not take "D_lr_factor" into account
     def update_learning_rate(self):
         step = torch.tensor(self.get_global_step(), dtype = torch.float)
         num_step = self.config["num_steps"]
@@ -350,10 +350,15 @@ class Iterator(TemplateIterator):
             amp = amplitide_lr(step)
             lr = self.config["learning_rate"] * amp
             
-            for optimizer in [self.optimizer_G, self.optimizer_D_A, self.optimizer_D_B]:  
+            # Update the learning rates
+            for g in self.optimizer_G.param_groups:
+                g['lr'] = lr
+            
+            D_lr_factor = self.config["optimization"]["D_lr_factor"] if "D_lr_factor" in self.config["optimization"] else 1
+            for optimizer in [self.optimizer_D_A, self.optimizer_D_B]:  
                 for g in optimizer.param_groups:
-                    g['lr'] = lr
-                return lr, amp
+                    g['lr'] = lr*D_lr_factor
+            return lr, amp
         else:
             return self.config["learning_rate"], 1
 

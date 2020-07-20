@@ -37,22 +37,18 @@ class Iterator(TemplateIterator):
         self.logger.debug(f"Model will pushed to the device: {self.device}")
         # Log the architecture of the model
         self.logger.debug(f"{model}")
-        self.G = self.model.netG.to(self.device)
-        self.D = self.model.netD.to(self.device)
+        self.netG = self.model.netG.to(self.device)
+        self.netD = self.model.netD.to(self.device)
         # WGAN values from paper
         self.b1 = 0.5
         self.b2 = 0.999
         self.learning_rate = config["learning_rate"]
         self.batch_size = self.config["batch_size"]
-        # WGAN_gradient penalty uses ADAM
-        self.d_optimizer = torch.optim.Adam(self.D.parameters(), lr=self.learning_rate, betas=(self.b1, self.b2))
-        self.g_optimizer = torch.optim.Adam(self.G.parameters(), lr=self.learning_rate, betas=(self.b1, self.b2))
-
-        # Set the logger
-        self.number_of_images = 10
-
-        self.generator_iters = self.config["num_steps"]
         self.critic_iter = self.config["losses"]["update_disc"] if "update_disc" in self.config["losses"] else 5
+        # WGAN_gradient penalty uses ADAM
+        self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=self.learning_rate, betas=(self.b1, self.b2))
+        D_lr_factor = self.config["optimization"]["D_lr_factor"] if "D_lr_factor" in config["optimization"] else 1
+        self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=self.learning_rate*D_lr_factor, betas=(self.b1, self.b2))
         
     def set_gpu(self):
         """Move the model to device cuda if available and use the specified GPU"""
@@ -75,21 +71,21 @@ class Iterator(TemplateIterator):
         losses["discriminator"] = {}
         gp_weight = self.config["losses"]["gp_weight"] if "gp_weight" in self.config["losses"] else 10
         # Requires grad, Generator requires_grad = False
-        for p in self.D.parameters():
+        for p in self.netD.parameters():
             p.requires_grad = True
         # Train Dicriminator forward-loss-backward-update self.critic_iter times while 1 Generator forward-loss-backward-update
         # Discriminator #
         '''
         at the moment no sampling
         # Train with fake images
-        z = self.get_torch_variable(torch.randn(self.batch_size, 100, 1, 1))
-        generated_images = self.G.sample(z)
+        z = self.netGet_torch_variable(torch.randn(self.batch_size, 100, 1, 1))
+        generated_images = self.netG.sample(z)
         '''
         # Train with real images
-        losses["discriminator"]["real"] = self.D(input_images).mean()
+        losses["discriminator"]["real"] = self.netD(input_images).mean()
         #losses["discriminator"]["real"] = d_loss_real
-        output_images = self.G(input_images)
-        losses["discriminator"]["fake"] = self.D(output_images).mean()
+        output_images = self.netG(input_images)
+        losses["discriminator"]["fake"] = self.netD(output_images.detach()).mean()
         #d_loss_fake
         
         # Train with gradient penalty
@@ -105,31 +101,40 @@ class Iterator(TemplateIterator):
     def G_criterion(self, input_images):
         losses = {}
         losses["generator"] = {}
-        losses["generator"]["update"] = 0
-        losses["generator"]["adv"]    = 0
-        losses["generator"]["rec"]    = 0
-        losses["generator"]["total"]  = 0
-        self.update_G = bool(((self.get_global_step())%self.critic_iter) == (self.critic_iter-1))
-        if self.update_G:
+        self.update_G = bool(((self.get_global_step())%self.critic_iter) == 0)
+        if self.update_G:            
+            kld_weight = self.config["losses"]["kld"]["weight"] if "kld" in self.config["losses"] else 0
+            kld_delay = self.config["losses"]['kld']["delay"] if "delay" in self.config["losses"]['kld'] else 0
+            kld_slope_steps = self.config["losses"]['kld']["slope_steps"] if "slope_steps" in self.config["losses"]['kld'] else 0
+            losses["generator"]["kld_weight"] = self.kld_update(kld_weight, self.get_global_step(), kld_delay, kld_slope_steps)
+
+            if kld_weight > 0 and  losses["generator"]["kld_weight"] > 0 and "sigma" in self.config["variational"] and self.config["variational"]["sigma"]:
+                losses["generator"]["kld"] = losses["generator"]["kld_weight"]* -0.5 * torch.mean(1 + self.netG.logvar - self.model.netG.mu.pow(2) - self.netG.logvar.exp())
+            else:
+                losses["generator"]["kld"] = 0
             # Generator update
             reconstruction_criterion = get_loss_funct(self.config["losses"]["reconstruction_loss"])
             rec_weight = self.config["losses"]["reconstruction_weight"] if "reconstruction_weight" in self.config["losses"] else 1
             adv_weight = self.config["losses"]["adversarial_weight"] if "adversarial_weight" in self.config["losses"] else 1
             
             losses["generator"]["update"] = 1
-            for p in self.D.parameters():
-                    p.requires_grad = False  # to avoid computation
-            self.G.zero_grad()    
+            for p in self.netD.parameters():
+                p.requires_grad = False  # to avoid computation
+            self.netG.zero_grad()    
             '''
             maybe sampling later
             # compute loss with fake images
             z = self.get_torch_variable(torch.randn(self.batch_size, 100, 1, 1))
             '''
-            output_images = self.G(input_images)
+            output_images = self.netG(input_images)
             losses["generator"]["rec"] = rec_weight * torch.mean( reconstruction_criterion( output_images, input_images))
-            losses["generator"]["adv"] = adv_weight * self.D(output_images).mean()
+            losses["generator"]["adv"] = adv_weight * self.netD(output_images).mean()
             
-            losses["generator"]["total"] = losses["generator"]["adv"] + losses["generator"]["rec"]
+            losses["generator"]["total"] = losses["generator"]["rec"] - losses["generator"]["adv"] + losses["generator"]["kld"]
+            self.losses_generator = losses["generator"]
+        else:
+            losses["generator"] = self.losses_generator
+            losses["generator"]["update"] = 0
         return losses
 
     def step_op(self, model, **kwargs):
@@ -137,38 +142,35 @@ class Iterator(TemplateIterator):
         input_images = torch.from_numpy(input_images)
         if (input_images.size()[0] != self.batch_size):
             self.logger.error("Batch size is not as expected")
-        input_images = self.get_torch_variable(input_images) 
+        input_images_D = self.get_torch_variable(input_images) 
+        input_images_G = self.get_torch_variable(input_images) 
         one = torch.tensor(1, dtype=torch.float)
         mone = one * -1
         one = one.to(self.device)
         mone = mone.to(self.device)
     
-        self.D.zero_grad()
-        d_losses, output_images = self.D_criterion(input_images)
-        self.G.zero_grad()
-        g_losses = self.G_criterion(input_images)
-        losses = dict(d_losses, **g_losses)
+        self.netD.zero_grad()
+        losses, output_images = self.D_criterion(input_images_D)
 
         def train_op():
-            #self.D.zero_grad()
-            losses["discriminator"]["real"].backward(mone)
-            losses["discriminator"]["fake"].backward(one)
-            losses["discriminator"]["gradient_penalty"].backward()
-            self.d_optimizer.step()
-            
+            # This function will be executed if the model is in training mode
+            if "optimization" in self.config and "reduce_lr" in self.config["optimization"]:
+                # reduce the learning rate if specified
+                losses["current_learning_rate"], losses["amplitude_learning_rate"] = self.update_learning_rate()
+            # Update the discriminator
+            losses["discriminator"]["total"].backward()
+            self.optimizer_D.step()
+            # Update the generator
+            self.netG.zero_grad()
+            g_losses = self.G_criterion(input_images_G)
+            losses["generator"] = g_losses["generator"]
             if self.update_G:
-                '''
-                for p in self.D.parameters():
-                    p.requires_grad = False  # to avoid computation
-                self.G.zero_grad()
-                '''
-                
-                losses["generator"]["rec"].backward(one,retain_graph=True)
-                losses["generator"]["adv"].backward(mone)
-                self.g_optimizer.step()
+                losses["generator"]["total"].backward()
+                #losses["generator"]["adv"].backward(mone)
+                self.optimizer_G.step()
 
         def log_op():
-            logs = self.prepare_logs(losses, input_images, output_images)
+            logs = self.prepare_logs(losses, input_images_D.detach(), output_images)
             return logs
 
         def eval_op():
@@ -221,7 +223,7 @@ class Iterator(TemplateIterator):
         interpolated = Variable(interpolated, requires_grad=True)
 
         # calculate probability of interpolated examples
-        prob_interpolated = self.D(interpolated)
+        prob_interpolated = self.netD(interpolated)
 
         # calculate gradients of probabilities with respect to examples
         gradients = autograd.grad(outputs=prob_interpolated, inputs=interpolated,
@@ -232,18 +234,50 @@ class Iterator(TemplateIterator):
         grad_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
         return grad_penalty
 
+    def update_learning_rate(self):
+        step = torch.tensor(self.get_global_step(), dtype = torch.float)
+        num_step = self.config["num_steps"]
+        current_ratio = step/self.config["num_steps"]
+        reduce_lr_ratio = self.config["optimization"]["reduce_lr"]
+        if current_ratio >= self.config["optimization"]["reduce_lr"]:
+            def amplitide_lr(step):
+                delta = (1-reduce_lr_ratio)*num_step
+                return (num_step-step)/delta
+            amp = amplitide_lr(step)
+            lr = self.config["learning_rate"] * amp
+            
+            # Update the learning rates
+            for g in self.optimizer_G.param_groups:
+                g['lr'] = lr
+            
+            D_lr_factor = self.config["optimization"]["D_lr_factor"] if "D_lr_factor" in self.config["optimization"] else 1
+            for g in self.optimizer_D.param_groups:
+                g['lr'] = lr*D_lr_factor
+            return lr, amp
+        else:
+            return self.config["learning_rate"], 1
+
+    def kld_update(self, weight, steps, delay, slope_steps):
+        output = 0
+        if steps >= delay and steps < slope_steps+delay:
+            output = weight*(1 - np.cos((steps-delay)*np.pi/slope_steps))/2
+        if steps > slope_steps+delay:
+            output = weight
+        return output
+
+
     def save(self, checkpoint_path):
         state = {}
-        state["generator"] = self.G.state_dict()
-        state["discriminator"] = self.D.state_dict()
-        state["d_optimizer"] = self.d_optimizer.state_dict()
-        state["g_optimizer"] = self.g_optimizer.state_dict()
+        state["generator"] = self.netG.state_dict()
+        state["discriminator"] = self.netD.state_dict()
+        state["optimizer_D"] = self.optimizer_D.state_dict()
+        state["optimizer_G"] = self.optimizer_G.state_dict()
         torch.save(state, checkpoint_path)
         self.logger.info('Models saved')
         
     def restore(self, checkpoint_path):
         state = torch.load(checkpoint_path)
-        self.G.load_state_dict(state["generator"])
-        self.D.load_state_dict(state["discriminator"])
-        self.d_optimizer.load_state_dict(state["d_optimizer"])
-        self.g_optimizer.load_state_dict(state["g_optimizer"])
+        self.netG.load_state_dict(state["generator"])
+        self.netD.load_state_dict(state["discriminator"])
+        self.optimizer_D.load_state_dict(state["optimizer_D"])
+        self.optimizer_G.load_state_dict(state["optimizer_G"])
