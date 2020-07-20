@@ -337,6 +337,7 @@ class Iterator(TemplateIterator):
         # convert to numpy
         walk(logs, conditional_convert2np, inplace=True)
         return logs
+        
     # update learning rate does not take "D_lr_factor" into account
     def update_learning_rate(self):
         step = torch.tensor(self.get_global_step(), dtype = torch.float)

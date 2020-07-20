@@ -25,9 +25,7 @@ from model.util import (
     set_random_state
 )
 
-SAVE_PER_TIMES = 100
-
-class Generator(nn.Module):
+class Old_Generator(nn.Module):
     def __init__(self, channels):
         super().__init__()
         # Filters [1024, 512, 256]
@@ -120,7 +118,6 @@ class Discriminator_face(Discriminator):
         super().__init__(input_channels = 3, input_resolution = input_resolution)
 
 
-
 class WGAN_GP(nn.Module):
     def __init__(self, config):
         super(WGAN_GP, self).__init__()
@@ -208,7 +205,6 @@ class WGAN_GP(nn.Module):
         print("Saved interpolated images.")
 
 
-
 class CycleWGAN_GP_VAE(nn.Module):
     def __init__(self, config):
         super(CycleWGAN_GP_VAE, self).__init__()
@@ -222,6 +218,7 @@ class CycleWGAN_GP_VAE(nn.Module):
         self.logger.info("WGAN_GradientPenalty init model.")
         self.output_names = ['real_A', 'fake_B', 'rec_A', 'real_B', 'fake_A', 'rec_B']
         self.cycle = "sketch" in self.config["model_type"] and "face" in self.config["model_type"]
+        self.sigma = self.config['variational']['sigma']
 
         latent_dim = self.config["latent_dim"]
         min_channels = self.config['conv']['n_channel_start']
@@ -234,19 +231,64 @@ class CycleWGAN_GP_VAE(nn.Module):
         BlockActivation = nn.ReLU()
         FinalActivation = nn.Tanh()
         batch_norm_enc = batch_norm_dec = self.config['batch_norm']
-        drop_rate_enc = self.config['dropout']['enc_rate']
-        drop_rate_dec = self.config['dropout']['dec_rate']
-        bias_enc = self.config['bias']['enc']
-        bias_dec = self.config['bias']['dec']
-        num_latent_layer = self.config['variational']['num_latent_layer']
+        drop_rate_enc = self.config['dropout']['enc_rate'] if "dropout" in self.config and "enc_rate" in self.config["dropout"] else 0
+        drop_rate_dec = self.config['dropout']['dec_rate'] if "dropout" in self.config and "dec_rate" in self.config["dropout"] else 0
+        bias_enc = self.config['bias']['enc'] if "bias" in self.config and "enc" in self.config["bias"] else True
+        bias_dec = self.config['bias']['dec'] if "bias" in self.config and "dec" in self.config["bias"] else True
+        num_latent_layer = self.config['variational']['num_latent_layer'] if "variational" in self.config and "num_latent_layer" in self.config["variational"] else 0
         
         if self.cycle:
-            print("WGAN_GradientPenaltynot implemented yet")
-            self.forward = self.cyle_forward
+            ## cycle A ##
+            self.netG_A = VAE_Model(
+                latent_dim = latent_dim,
+                min_channels = min_channels,
+                max_channels = max_channels,
+                in_size = sketch_shape[0], 
+                in_channels = sketch_shape[1],
+                out_size = face_shape[0],
+                out_channels = face_shape[1],
+                sigma=sigma,
+                num_extra_conv_enc=num_extra_conv_sketch,
+                num_extra_conv_dec=num_extra_conv_face,
+                BlockActivation=BlockActivation,
+                FinalActivation=FinalActivation,
+                batch_norm_enc=batch_norm_enc,
+                batch_norm_dec=batch_norm_dec,
+                drop_rate_enc=drop_rate_enc,
+                drop_rate_dec=drop_rate_dec,
+                bias_enc=bias_enc,
+                bias_dec=bias_dec,
+                same_max_channels=False, 
+                num_latent_layer=num_latent_layer)
+            self.netD_A = Discriminator_sketch()
+            ## cycle B ##
+            self.netG_B = VAE_Model(
+                latent_dim = latent_dim,
+                min_channels = min_channels,
+                max_channels = max_channels,
+                in_size = face_shape[0], 
+                in_channels = face_shape[1],
+                out_size = sketch_shape[0],
+                out_channels = sketch_shape[1],
+                sigma=sigma,
+                num_extra_conv_enc=num_extra_conv_sketch,
+                num_extra_conv_dec=num_extra_conv_face,
+                BlockActivation=BlockActivation,
+                FinalActivation=FinalActivation,
+                batch_norm_enc=batch_norm_enc,
+                batch_norm_dec=batch_norm_dec,
+                drop_rate_enc=drop_rate_enc,
+                drop_rate_dec=drop_rate_dec,
+                bias_enc=bias_enc,
+                bias_dec=bias_dec,
+                same_max_channels=False, 
+                num_latent_layer=num_latent_layer)
+            self.netD_B = Discriminator_face(input_resolution=face_shape[0])
+            self.forward = self.cycle_forward
         else:
             shapes = sketch_shape if "sketch" in self.config["model_type"] else face_shape
             num_extra_conv = num_extra_conv_sketch if "sketch" in self.config["model_type"] else num_extra_conv_face
-        
+            # initialise model with right arguments
             self.netG = VAE_Model(
                 latent_dim = latent_dim,
                 min_channels = min_channels,
@@ -271,11 +313,38 @@ class CycleWGAN_GP_VAE(nn.Module):
             self.netD = Discriminator_sketch() if "sketch" in self.config["model_type"] else Discriminator_face(input_resolution=face_shape[0])
             self.forward = self.VAE_forward
 
-    def sample(self, x):
-        return self.netG.dec(x)
-
     def VAE_forward(self, x):
         return self.netG(x)
     
     def cycle_forward(self, real_A=None, real_B=None):
-        print("Not implemented yet")
+        '''
+        x: dictionary of sketch and face images
+        '''
+        output_names = []
+        output_values = []
+        out = []
+        #forward pass of images of domain A (sketches)
+        if real_A is not None:
+            self.logger.debug("first_input.shape " + str(real_A.shape))
+            fake_B = self.netG_A(real_A)
+            self.logger.debug("first_output secound input .shape " + str(fake_B.shape))
+            rec_A = self.netG_B(fake_B)
+            self.logger.debug("secound output.shape " + str(rec_A.shape))
+            
+            output_names += self.output_names[:3]
+            output_values +=  [real_A, fake_B, rec_A]
+            out.append(fake_B)
+        #forward pass of images of domain B (faces)
+        if real_B is not None:    
+            fake_A = self.netG_B(real_B) 
+            self.logger.debug("fake_A.shape " + str(fake_A.shape))
+            self.logger.debug("real_B.shape " + str(real_B.shape))
+            rec_B = self.netG_A(fake_A)
+
+            output_names += output_names[3:]
+            output_values += [real_B, fake_A, rec_B]
+            out.append(fake_A)
+        
+        self.output = dict(zip(self.output_names, output_values))
+        return out
+
