@@ -329,6 +329,8 @@ class Iterator(TemplateIterator):
             logs["images"].update({"input_face_"   + str(i): np.expand_dims(real_B_img[i],0)})
             logs["images"].update({"fake_sketch_"  + str(i): np.expand_dims(fake_A_img[i],0)})
             logs["images"].update({"fake_face_"    + str(i): np.expand_dims(fake_B_img[i],0)})
+            logs["images"].update({"rec_sketch_"  + str(i): np.expand_dims(rec_A_img[i],0)})
+            logs["images"].update({"rec_face_"    + str(i): np.expand_dims(rec_B_img[i],0)})
             
         def conditional_convert2np(log_item):
             if isinstance(log_item, torch.Tensor):

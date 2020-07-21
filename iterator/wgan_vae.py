@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import random
+import itertools
 
 import torch
 import torch.nn as nn
@@ -50,13 +51,15 @@ class Iterator_CycleGAN(TemplateIterator):
         self.add_latent_layer = bool('num_latent_layer' in self.config['variational'] and self.config['variational']['num_latent_layer'] > 0)
         self.only_latent_layer = bool('only_latent_layer' in self.config['optimization'] and self.config['optimization']['only_latent_layer'])
         if self.only_latent_layer:
+            self.critic_iter = 1
+            self.logger.debug("critic_iter set to 1 since only_latent_layer is True.")
             self.optimizer_Lin = torch.optim.Adam(itertools.chain(self.model.netG_A.latent_layer.parameters(), self.model.netG_B.latent_layer.parameters()), lr=self.config["learning_rate"])
             self.logger.debug("Only latent layers are optimized\nNumber of latent layers: {}".format(self.config['variational']['num_latent_layer']))
         else:
             # WGAN_gradient penalty uses ADAM
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.model.netG_A.parameters(), self.model.netG_B.parameters()), lr=self.learning_rate, betas=(self.b1, self.b2))
-            D_lr_factor = self.config["optimization"]["D_lr_factor"] if "D_lr_factor" in config["optimization"] else 1
-            self.optimizer_D = torch.optim.Adam(itertools.chain(self.model.netD_A.parameters(), self.model.netD_B.parameters()), lr=D_lr_factor * self.config["learning_rate"], betas=(self.b1, self.b2))
+        D_lr_factor = self.config["optimization"]["D_lr_factor"] if "D_lr_factor" in config["optimization"] else 1
+        self.optimizer_D = torch.optim.Adam(itertools.chain(self.model.netD_A.parameters(), self.model.netD_B.parameters()), lr=D_lr_factor * self.config["learning_rate"], betas=(self.b1, self.b2))
 
     def set_gpu(self):
         """Move the model to device cuda if available and use the specified GPU"""
@@ -209,9 +212,14 @@ class Iterator_CycleGAN(TemplateIterator):
                 self.optimizer_G.zero_grad()
                 losses["generators"].backward()
                 self.optimizer_G.step()
+                print("GHJKJHGFG")
             # train only linear layers
             if self.only_latent_layer:
-                self.train_lin_layer()
+                self.set_requires_grad([self.model.netG_A.enc, self.model.netG_A.dec, self.model.netG_B.enc, self.model.netG_B.dec], False)
+                self.optimizer_Lin.zero_grad()
+                losses["generators"].backward()
+                self.optimizer_Lin.step()
+                #self.train_lin_layer(losses)
             # update the discriminators
             self.set_requires_grad([self.model.netD_A, self.model.netD_B], True)
             self.optimizer_D.zero_grad()
@@ -227,7 +235,7 @@ class Iterator_CycleGAN(TemplateIterator):
 
         return {"train_op": train_op, "log_op": log_op, "eval_op": eval_op}
     
-    def train_lin_layer(self):
+    def train_lin_layer(self, losses):
         self.set_requires_grad([self.model.netG_A.enc, self.model.netG_A.dec, self.model.netG_B.enc, self.model.netG_B.dec], False)
         self.optimizer_Lin.zero_grad()
         losses["generators"].backward()
@@ -362,13 +370,15 @@ class Iterator_CycleGAN(TemplateIterator):
         state['face_encoder'] = self.model.netG_B.enc.state_dict()
         state['face_decoder'] = self.model.netG_A.dec.state_dict()
         state['face_dicriminator'] = self.model.netD_B.state_dict()
-        state['optimizer_G'] = self.optimizer_G.state_dict()
         state['optimizer_D'] = self.optimizer_D.state_dict()
         if self.add_latent_layer:
             state['sketch_latent_layer'] = self.model.netG_A.latent_layer.state_dict()
             state['face_latent_layer'] = self.model.netG_B.latent_layer.state_dict()
-            if self.only_latent_layer:
-                state['optimizer_Lin'] = self.optimizer_Lin.state_dict()
+        if self.only_latent_layer:
+            state['optimizer_Lin'] = self.optimizer_Lin.state_dict()
+        else:
+            state['optimizer_G'] = self.optimizer_G.state_dict()
+
         
         torch.save(state, checkpoint_path)
     
@@ -380,15 +390,15 @@ class Iterator_CycleGAN(TemplateIterator):
         self.model.netG_B.enc.load_state_dict(state['face_encoder'])
         self.model.netG_A.dec.load_state_dict(state['face_decoder'])
         self.model.netD_B.load_state_dict(state['face_discriminator'])
-        self.optimizer_G.load_state_dict(state['optimizer_G'])
         self.optimizer_D.load_state_dict(state['optimizer_D'])
 
         if self.add_latent_layer:
             self.model.netG_A.latent_layer.load_state_dict(state['sketch_latent_layer'])
             self.model.netG_B.latent_layer.load_state_dict(state['face_latent_layer'])
-            if self.only_latent_layer:
-                self.optimizer_Lin.load_state_dict(state['optimizer_Lin'])
-
+        if self.only_latent_layer:
+            self.optimizer_Lin.load_state_dict(state['optimizer_Lin'])
+        else:
+            self.optimizer_G.load_state_dict(state['optimizer_G'])
 
 
 ####################

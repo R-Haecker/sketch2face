@@ -3,27 +3,27 @@ from wgan import CycleWGAN_GP_VAE
 import yaml
 import torch
 
-checkpoint_dir_path = "path/to/dir"
-checkpoint_name = "name.ckpt"
+#run_name = "2020-07-20T19-56-20_vae_wgan_big_recon_L1"
+run_name = "2020-07-20T10-30-22_vae_wgan_big_recon_L1"
+checkpoint_dir_path = "/export/home/rhaecker/documents/sketch2face/logs/" + run_name + "/train/checkpoints/"
+checkpoint_name = "model-50000.ckpt"
 checkpoint_path = os.path.join(checkpoint_dir_path, checkpoint_name)
 new_checkpoint_path = os.path.join(checkpoint_dir_path, 'converted_' + checkpoint_name)
-config_path = "path/to/config.yaml"
+config_path = "/export/home/rhaecker/documents/sketch2face/logs/" + run_name + "/configs"
+configs = os.listdir(config_path)
+config_path = config_path + "/" + configs[0]
 
 def save(model, checkpoint_path):
     state = {}
     state["encoder"] = model.netG.enc.state_dict()
     state["decoder"] = model.netG.dec.state_dict()
     state["discriminator"] = model.netD.state_dict()
-    state["optimizer_D"] = model.optimizer_D.state_dict()
-    state["optimizer_G"] = model.optimizer_G.state_dict()
-
+    torch.save(state, checkpoint_path)
+    
 def restore(model, checkpoint_path):
     state = torch.load(checkpoint_path)
     model.netG.load_state_dict(state["generator"])
     model.netD.load_state_dict(state["discriminator"])
-    model.optimizer_D.load_state_dict(state["optimizer_D"])
-    model.optimizer_G.load_state_dict(state["optimizer_G"])
-
 
 with open(config_path) as file:
     config = yaml.full_load(file)
