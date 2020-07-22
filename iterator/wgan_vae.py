@@ -136,8 +136,10 @@ class Iterator_CycleGAN(TemplateIterator):
         losses["discriminator_face"] = {}
         losses["discriminator_face"]["outputs_fake"] = losses["sketch_cycle"]["disc_fake"].clone().detach().cpu().numpy()
         losses["discriminator_face"]["outputs_real"] = losses["sketch_cycle"]["disc_real"].clone().detach().cpu().numpy()
-        
-        losses["sketch_cycle"]["disc_total"] = losses["sketch_cycle"]["disc_fake"] - losses["sketch_cycle"]["disc_real"]
+        # punish if both outputs go to negative values
+        disc_mean_output_weight = self.config["losses"]["disc_output_mean_weight"] if "disc_output_mean_weight" in self.config["losses"] else 0
+        losses["sketch_cycle"]["disc_mean"]  = disc_mean_output_weight * torch.abs( torch.mean(torch.stack([losses["sketch_cycle"]["disc_fake"], losses["sketch_cycle"]["disc_real"]])) )
+        losses["sketch_cycle"]["disc_total"] = losses["sketch_cycle"]["disc_fake"] - losses["sketch_cycle"]["disc_real"] + losses["sketch_cycle"]["disc_mean"]
         if gp_weight > 0:
             losses["sketch_cycle"]["gp"] = gp_weight * self.calculate_gradient_penalty(self.model.netD_B, self.model.output['real_B'], self.model.output['fake_B'].detach())
             losses["sketch_cycle"]["disc_total"] += losses["sketch_cycle"]["gp"]
@@ -165,7 +167,8 @@ class Iterator_CycleGAN(TemplateIterator):
         losses["discriminator_sketch"] = {}
         losses["discriminator_sketch"]["outputs_fake"] = losses["face_cycle"]["disc_fake"].clone().detach().cpu().numpy()
         losses["discriminator_sketch"]["outputs_real"] = losses["face_cycle"]["disc_real"].clone().detach().cpu().numpy()
-        losses["face_cycle"]["disc_total"] = losses["face_cycle"]["disc_fake"] - losses["face_cycle"]["disc_real"]
+        losses["face_cycle"]["disc_mean"]  = disc_mean_output_weight * torch.abs( torch.mean(torch.stack([losses["face_cycle"]["disc_fake"], losses["face_cycle"]["disc_real"]])) )
+        losses["face_cycle"]["disc_total"] = losses["face_cycle"]["disc_fake"] - losses["face_cycle"]["disc_real"] + disc_mean_output_weight * torch.abs(losses["face_cycle"]["disc_fake"] - losses["face_cycle"]["disc_real"])
         if gp_weight > 0:
             losses["face_cycle"]["gp"] = gp_weight * self.calculate_gradient_penalty(self.model.netD_A, self.model.output['real_A'], self.model.output['fake_A'].detach())
             losses["face_cycle"]["disc_total"] += losses["face_cycle"]["gp"]
@@ -212,7 +215,6 @@ class Iterator_CycleGAN(TemplateIterator):
                 self.optimizer_G.zero_grad()
                 losses["generators"].backward()
                 self.optimizer_G.step()
-                print("GHJKJHGFG")
             # train only linear layers
             if self.only_latent_layer:
                 self.set_requires_grad([self.model.netG_A.enc, self.model.netG_A.dec, self.model.netG_B.enc, self.model.netG_B.dec], False)
@@ -340,7 +342,8 @@ class Iterator_CycleGAN(TemplateIterator):
             lr = self.config["learning_rate"] * amp
             
             # Update the learning rates
-            for g in self.optimizer_G.param_groups:
+            opti = self.optimizer_Lin if self.only_latent_layer else self.optimizer_G
+            for g in opti.param_groups:
                 g['lr'] = lr
             
             D_lr_factor = self.config["optimization"]["D_lr_factor"] if "D_lr_factor" in self.config["optimization"] else 1
@@ -410,7 +413,7 @@ class Iterator_VAE(TemplateIterator):
         super().__init__(config, root, model, *args, **kwargs)
         self.logger = get_logger("Iterator")
         assert config["model_type"] != "sketch2face", "This iterator does not support sketch2face models only single GAN models supported."
-        assert self.config["model"] == "model.wgan.CycleWGAN_GP_VAE", "This iterator only supports the model: wgan.CycleWGAN_GP_VAE"
+        assert config["model"] == "model.wgan.CycleWGAN_GP_VAE", "This iterator only supports the model: wgan.CycleWGAN_GP_VAE"
         # get the config and the logger
         self.config = config
         self.set_random_state()
@@ -476,7 +479,10 @@ class Iterator_VAE(TemplateIterator):
         # Train with gradient penalty
         losses["discriminator"]["gradient_penalty"] = gp_weight * self.calculate_gradient_penalty(input_images.data, output_images.data)
         
-        losses["discriminator"]["total"] = losses["discriminator"]["fake"] - losses["discriminator"]["real"] + losses["discriminator"]["gradient_penalty"]
+        disc_mean_output_weight = self.config["losses"]["disc_output_mean_weight"] if "disc_output_mean_weight" in self.config["losses"] else 0
+        losses["discriminator"]["mean"] = disc_mean_output_weight * torch.abs( torch.mean(torch.stack([losses["discriminator"]["fake"], losses["discriminator"]["real"]])) )
+
+        losses["discriminator"]["total"] = losses["discriminator"]["fake"] - losses["discriminator"]["real"] + losses["discriminator"]["gradient_penalty"] + losses["discriminator"]["mean"]
         losses["discriminator"]["Wasserstein_D"] = losses["discriminator"]["real"] - losses["discriminator"]["fake"]
         losses["discriminator"]["outputs_real"] = losses["discriminator"]["real"]
         losses["discriminator"]["outputs_fake"] = losses["discriminator"]["fake"]

@@ -24,7 +24,7 @@ data:
 datasets:
   train: data.data_loader.dataset.DatasetTrain
   validation: data.data_loader.dataset.DatasetEval
-debug_log_level: False
+debug_log_level: false
 dropout:
   dec_rate: 0
   disc_rate: 0
@@ -67,8 +67,7 @@ losses:
   update_disc: 5
 model: model.wgan.CycleWGAN_GP_VAE
 model_type: sketch
-num_epochs: 18
-num_steps: 50000
+num_steps: 100000
 optimization:
   D_lr_factor: 1
   reduce_lr: 0.2

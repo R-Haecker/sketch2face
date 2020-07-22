@@ -1,0 +1,77 @@
+# info for run
+code_root: null
+integrations:
+  wandb:
+    active: True
+    #project: "Debug!"
+    project: "sketch_or_face"
+    entity: "chacker"
+
+# Dataset info
+datasets:
+  train: data.data_loader.dataset.DatasetTrain
+  validation: data.data_loader.dataset.DatasetEval
+
+data:
+  data_root_face: /export/home/rhaecker/documents/sketch2face/data/data_sets/img_align_celeba/
+  data_root_sketch: /export/home/rhaecker/documents/sketch2face/data/data_sets/full_numpy_bitmap_face.npy
+  
+  shuffle: True
+  validation_split: 0.1
+  test_split: 0.1
+  transform:
+    resolution: 64
+    mirror: True
+    crop_offset: 0
+
+# Meta Info
+explanation: "vae wgan gp face res 64 with disc mean loss"
+debug_log_level: False
+#CUDA_VISIBLE_DEVICES: 8
+
+# Iterator info
+iterator: iterator.wgan_vae.Iterator_VAE
+model: model.wgan.CycleWGAN_GP_VAE
+
+optimization:
+  reduce_lr: 0.3
+  D_lr_factor: 1
+
+losses:
+  reconstruction_loss: L1
+  reconstruction_weight: 5000.0
+  adversarial_weight: 1.0
+  gp_weight: 10
+  update_disc: 5
+  kld:
+    weight: 5000.0
+    delay: 10000
+    slope_steps: 2000
+
+
+variational:
+  sigma: True
+  num_latent_layer: 0
+
+conv:
+  n_channel_start: 256
+  n_channel_max: 1024
+  sketch_extra_conv: 0
+  face_extra_conv: 0
+
+latent_dim: 256
+batch_norm: True
+
+bias:
+  dec: False
+  enc: False
+
+model_type: "face"
+# face ; sketch
+
+batch_size: 64
+num_steps: 100000
+
+# Model info
+learning_rate: 0.0001
+random_seed: 10
