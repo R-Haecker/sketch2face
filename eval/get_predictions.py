@@ -1,23 +1,19 @@
 import os
+import sys
 import numpy as np
 import PIL.Image as Image
 import torch
-import torchvision
 import torchvision.transforms as transforms
-import sys 
 import yaml
 import matplotlib.pyplot as plt
 from skimage.transform import resize
-
+# import from root path
 cur_path = os.path.dirname(os.path.abspath(__file__))
 cur_path = cur_path.replace("\\", "/")
 path = cur_path[:cur_path.rfind('/')]
 sys.path.append(path)
 from model.wgan import CycleWGAN_GP_VAE
 from data.data_loader.dataset import Dataset
-'''cur_path = os.path.dirname(os.path.abspath(__file__))
-path = cur_path[:cur_path.rfind('/')]
-sys.path.append(path)'''
 
 def croped_images_from_batch(batch_path, image_size=32, save_path=None, save_name=None, to_gray=True):
     if save_name is None:
@@ -92,29 +88,18 @@ def transform_batch(transformation, batch):
         new_batch.append(transformation(img))
     return torch.stack(new_batch).float()
 
-#x = croped_images_from_batch("C:/Users/user/Desktop/Uni/Semester 8/Deep Vision/sketch2face/eval/data/2020-07-22T12-55-18_s2f_load_train_all/train/validation/log_op/batch_input_sketch_0018000.png",
-#                            save_path="data/test_batch", save_name="first_test")
-#transformation = get_transformation(size=32)
-#x = transform_batch(transformation,x )
-
 def save_predictions_same_image(img_num, name_add=''):
     checkpoint_dir = unix_path("C:\\Users\\user\\Desktop\\Uni\\Semester 8\\Deep Vision\\sketch2face\\eval\\data\\2020-07-22T12-55-18_s2f_load_train_all\\train\\checkpoints")
     checkpoint_name = "model-18192.ckpt"
     config_path = unix_path("C:\\Users\\user\\Desktop\\Uni\\Semester 8\\Deep Vision\\sketch2face\\config\\07_22\\cycle_wgan_continue_full.yaml")
 
-    #img_num = 7
     img_path = "data/test_batch/first_test_{}.png".format(img_num)
-
     config = get_config(config_path)
-
     model = load_model(config, checkpoint_dir, checkpoint_name)
 
     transformation = get_transformation(size=32)
 
     batch = get_same_images(10, img_path=img_path)
-
-
-
     
     batch = transform_batch(transformation, batch)
     plt.imshow((batch[0][0].numpy() + 1)/2 )
@@ -133,7 +118,6 @@ def plot_enc_output():
     checkpoint_name = "model-18192.ckpt"
     config_path = unix_path("C:\\Users\\user\\Desktop\\Uni\\Semester 8\\Deep Vision\\sketch2face\\config\\07_22\\cycle_wgan_continue_full.yaml")
 
-    
     config = get_config(config_path)
     model = load_model(config, checkpoint_dir, checkpoint_name)
 
@@ -141,7 +125,6 @@ def plot_enc_output():
 
     z_std_list = []
     z2_std_list = []
-
     for name in ["0018000", "0017000", "0016000", "0015000"]:
         batch = croped_images_from_batch("C:/Users/user/Desktop/Uni/Semester 8/Deep Vision/sketch2face/eval/data/2020-07-22T12-55-18_s2f_load_train_all/train/validation/log_op/batch_input_sketch_{}.png".format(name))
         batch = transform_batch(transformation, batch)
@@ -166,7 +149,6 @@ def save_predictions_same_image_dataloader(img_num, name_add=''):
     checkpoint_name = "model-18192.ckpt"
     config_path = unix_path("C:\\Users\\user\\Desktop\\Uni\\Semester 8\\Deep Vision\\sketch2face\\config\\07_22\\cycle_wgan_continue_full.yaml")
 
-    
     config = get_config(config_path)
     model = load_model(config, checkpoint_dir, checkpoint_name)
 
@@ -214,18 +196,6 @@ def save_predictions_different_image_dataloader(img_num, name_add=''):
         plt.imshow((img+1)/2)
         plt.savefig("data/test_batch_output/{}{}_image_{}".format(img_num, name_add, i))
 
-model_type='only_latent'
-
-#x = croped_images_from_batch("C:/Users/user/Desktop/Uni/Semester 8/Deep Vision/sketch2face/eval/data/{}/input.png".format(model_type), image_size=32, save_path="C:/Users/user/Desktop/Uni/Semester 8/Deep Vision/sketch2face/eval/data/{}/input".format(model_type), save_name="")
-#x = croped_images_from_batch("C:/Users/user/Desktop/Uni/Semester 8/Deep Vision/sketch2face/eval/data/{}/fake.png".format(model_type), image_size=64, save_path="C:/Users/user/Desktop/Uni/Semester 8/Deep Vision/sketch2face/eval/data/{}/fake".format(model_type), save_name="")
-#x = croped_images_from_batch("C:/Users/user/Desktop/Uni/Semester 8/Deep Vision/sketch2face/eval/data/{}/rec.png".format(model_type), image_size=32, save_path="C:/Users/user/Desktop/Uni/Semester 8/Deep Vision/sketch2face/eval/data/{}/rec".format(model_type), save_name="")
-
-#save_predictions_different_image_dataloader(7, "_3_different")
-#plot_enc_output()
-'''batch_path = None#"path/to/batch/image"
-save_path = None#"path/to/dir/of/images"
-save_name = None#"name"'''
-
 def get_image_collection(model_type, indeces, columns=2, base_path ="C:/Users/user/Desktop/Uni/Semester 8/Deep Vision/sketch2face/eval/data/"):
     
     
@@ -257,7 +227,6 @@ def save_predictions_same_image_dataloader2(N, img_num_list, model_type, config_
     #checkpoint_dir = unix_path("C:\\Users\\user\\Desktop\\Uni\\Semester 8\\Deep Vision\\sketch2face\\eval\\data\\2020-07-22T12-55-18_s2f_load_train_all\\train\\checkpoints")
     #checkpoint_name = "model-18192.ckpt"
     #config_path = unix_path("C:\\Users\\user\\Desktop\\Uni\\Semester 8\\Deep Vision\\sketch2face\\config\\07_22\\cycle_wgan_continue_full.yaml")
-
     
     config = get_config(config_path)
     for img_num in img_num_list:
@@ -299,18 +268,8 @@ def save_predictions_same_image_dataloader2(N, img_num_list, model_type, config_
         plt.savefig(save_path + "rec" ,bbox_inches='tight')
         plt.show()
 
-
-        
-        
-        
-        
-save_predictions_same_image_dataloader2(3, [23, 24, 20, 11, 13], 'from_skratch',
-        config_path = unix_path("C:\\Users\\user\\Desktop\\Uni\\Semester 8\\Deep Vision\\sketch2face\\config\\07_21\\cycle_wgan_from_skratch.yaml"),
-        checkpoint_dir = unix_path("C:\\Users\\user\\Desktop\\Uni\\Semester 8\\Deep Vision\\sketch2face\\eval\\data\\sketch2face_run_data\\from_scratch"),
-        checkpoint_name = "model-100000.ckpt")
-
-
-#for name in ["only_latent","train_all"]:
-#    get_image_collection(name, [1,2,3,7,5,6])
-
-
+if __name__ == "__main__":  
+    save_predictions_same_image_dataloader2(3, [23, 24, 20, 11, 13], 'from_skratch',
+            config_path = unix_path("C:\\Users\\user\\Desktop\\Uni\\Semester 8\\Deep Vision\\sketch2face\\config\\07_21\\cycle_wgan_from_skratch.yaml"),
+            checkpoint_dir = unix_path("C:\\Users\\user\\Desktop\\Uni\\Semester 8\\Deep Vision\\sketch2face\\eval\\data\\sketch2face_run_data\\from_scratch"),
+            checkpoint_name = "model-100000.ckpt")

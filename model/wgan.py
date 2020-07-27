@@ -219,6 +219,7 @@ class CycleWGAN_GP_VAE(nn.Module):
         self.output_names = ['real_A', 'fake_B', 'rec_A', 'real_B', 'fake_A', 'rec_B']
         self.cycle = "sketch" in self.config["model_type"] and "face" in self.config["model_type"]
         self.sigma = self.config['variational']['sigma']
+        self.num_latent_layer = self.config['variational']['num_latent_layer'] if "variational" in self.config and "num_latent_layer" in self.config["variational"] else 0
 
         latent_dim = self.config["latent_dim"]
         min_channels = self.config['conv']['n_channel_start']
@@ -285,6 +286,8 @@ class CycleWGAN_GP_VAE(nn.Module):
                 num_latent_layer=num_latent_layer)
             self.netD_B = Discriminator_face(input_resolution=face_shape[0])
             self.forward = self.cycle_forward
+            self.restore = self.cycle_restore
+            self.save = self.cycle_save
         else:
             shapes = sketch_shape if "sketch" in self.config["model_type"] else face_shape
             num_extra_conv = num_extra_conv_sketch if "sketch" in self.config["model_type"] else num_extra_conv_face
@@ -348,3 +351,34 @@ class CycleWGAN_GP_VAE(nn.Module):
         self.output = dict(zip(self.output_names, output_values))
         return out
 
+    def cycle_save(self, checkpoint_path):
+        '''
+        'sketch_decoder' refers to the decoder of the face2sketch network
+                        and vice versa. 
+        '''
+        state = {}
+        state['sketch_encoder']       = self.netG_A.enc.state_dict()
+        state['sketch_decoder']       = self.netG_B.dec.state_dict()
+        state['sketch_discriminator'] = self.netD_A.state_dict()
+        state['face_encoder']         = self.netG_B.enc.state_dict()
+        state['face_decoder']         = self.netG_A.dec.state_dict()
+        state['face_dicriminator']    = self.netD_B.state_dict()
+
+        if self.num_latent_layer != 0:
+            state['sketch_latent_layer'] = self.netG_A.latent_layer.state_dict()
+            state['face_latent_layer']   = self.netG_B.latent_layer.state_dict()
+        
+        torch.save(state, checkpoint_path)
+    
+    def cycle_restore(self, checkpoint_path):
+        state = torch.load(checkpoint_path)
+        self.netG_A.enc.load_state_dict(state['sketch_encoder'])
+        self.netG_B.dec.load_state_dict(state['sketch_decoder'])
+        self.netD_A.load_state_dict(state['sketch_discriminator'])
+        self.netG_B.enc.load_state_dict(state['face_encoder'])
+        self.netG_A.dec.load_state_dict(state['face_decoder'])
+        self.netD_B.load_state_dict(state['face_dicriminator'])
+        
+        if self.num_latent_layer != 0:
+            self.netG_A.latent_layer.load_state_dict(state['sketch_latent_layer'])
+            self.netG_B.latent_layer.load_state_dict(state['face_latent_layer'])

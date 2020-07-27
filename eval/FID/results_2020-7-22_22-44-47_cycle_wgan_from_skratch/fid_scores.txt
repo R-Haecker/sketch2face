@@ -1,0 +1,4 @@
+FID scores of run2020-07-21T19-04-08_cycle_wgan_from_skratch over 1000 images 
+sketch FID Score = 83.31891493142965
+face FID Score = 81.86906043642716
+mean FID Score = 82.5939876839284
