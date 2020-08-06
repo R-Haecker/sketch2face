@@ -6,6 +6,9 @@ from torch.autograd import Variable
 
 from edflow.util import walk
 
+class ID_module(nn.Module):
+    def forward(self, input):
+        return input
 
 def get_loss_funct(loss_function):
     '''Get the loss function specified in the config.'''
@@ -16,7 +19,7 @@ def get_loss_funct(loss_function):
     if loss_function == "BCE":
         return nn.BCELoss()
     if loss_function == "wasserstein":
-        return
+        return ID_module
 
 # This function was copied from the VUNet repository: https://github.com/jhaux/VUNet.git
 def pt2np(tensor, permute=True):
@@ -53,7 +56,6 @@ def set_random_state(random_seed):
     torch.random.manual_seed(random_seed)
 
 # this function was copied from: https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/models/base_model.py
-
 
 def set_requires_grad(nets, requires_grad=False):
     """Set requies_grad=Fasle for all the networks to avoid unnecessary computations

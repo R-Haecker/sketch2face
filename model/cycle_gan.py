@@ -1,25 +1,62 @@
 import torch
 from torch import nn
-from model.vae import VAE_Model
+from model.vae import VAE
 from model.discriminator import Discriminator_sketch, Discriminator_face
 
 from edflow import get_logger
 
-class CycleGAN_Model(nn.Module):
+class Cycle_GAN(nn.Module):
     def __init__(self, config):
-        super(CycleGAN_Model, self).__init__()
+        super(CycleGAN, self).__init__()
         self.config = config
         self.logger = get_logger("CycleGAN")
         self.output_names = ['real_A', 'fake_B', 'rec_A', 'real_B', 'fake_A', 'rec_B']
         self.cycle = "sketch" in self.config["model_type"] and "face" in self.config["model_type"]
+        self.sigma = self.config['variational']['sigma']
+
+        latent_dim = self.config["latent_dim"]
+        min_channels = self.config['conv']['n_channel_start']
+        max_channels= self.config['conv']['n_channel_max']
+        sketch_shape = [32, 1]
+        face_shape = [self.config['data']['transform']['resolution'], 3]
+        sigma = self.config['variational']['sigma']
+        num_extra_conv_sketch = self.config['conv']['sketch_extra_conv']
+        num_extra_conv_face = self.config['conv']['face_extra_conv']
+        BlockActivation = nn.ReLU()
+        FinalActivation = nn.Tanh()
+        batch_norm_enc = batch_norm_dec = self.config['batch_norm']
+        drop_rate_enc = self.config['dropout']['enc_rate']
+        drop_rate_dec = self.config['dropout']['dec_rate']
+        bias_enc = self.config['bias']['enc']
+        bias_dec = self.config['bias']['dec']
+        num_latent_layer = self.config['variational']['num_latent_layer'] if 'num_latent_layer' in self.config['variational'] else 0
         if self.cycle:
-            self.netG_A = VAE_Model(self.config, enc_sketch=True, dec_sketch=False)
+            self.netG_A = VAE_Model(latent_dim, min_channels, max_channels, *sketch_shape, *face_shape,
+                                    sigma, num_extra_conv_sketch, num_extra_conv_face, 
+                                    BlockActivation, FinalActivation,
+                                    batch_norm_enc, batch_norm_dec,
+                                    drop_rate_enc, drop_rate_dec,
+                                    bias_enc, bias_dec, 
+                                    num_latent_layer = num_latent_layer)
             self.netD_A = Discriminator_sketch()
-            self.netG_B = VAE_Model(self.config, enc_sketch=False, dec_sketch=True)
+            self.netG_B = VAE_Model(latent_dim, min_channels, max_channels, *face_shape, *sketch_shape,
+                                    sigma, num_extra_conv_face, num_extra_conv_sketch, 
+                                    BlockActivation, FinalActivation,
+                                    batch_norm_enc, batch_norm_dec,
+                                    drop_rate_enc, drop_rate_dec,
+                                    bias_enc, bias_dec, 
+                                    num_latent_layer = num_latent_layer)
             self.netD_B = Discriminator_face()
         else:
             sketch = True if "sketch" in self.config["model_type"] else False
-            self.netG = VAE_Model(self.config, enc_sketch=sketch, dec_sketch=sketch)
+            shapes = sketch_shape if "sketch" in self.config["model_type"] else face_shape
+            num_extra_conv = num_extra_conv_sketch if "sketch" in self.config["model_type"] else num_extra_conv_face
+            self.netG = VAE_Model(latent_dim, min_channels, max_channels, *shapes, *shapes,
+                                    sigma, num_extra_conv, num_extra_conv, 
+                                    BlockActivation, FinalActivation,
+                                    batch_norm_enc, batch_norm_dec,
+                                    drop_rate_enc, drop_rate_dec,
+                                    bias_enc, bias_dec)
             self.netD = Discriminator_sketch() if sketch else Discriminator_face()
 
     def vae_forward(self, x):

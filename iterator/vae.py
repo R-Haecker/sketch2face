@@ -20,6 +20,7 @@ from iterator.util import (
 #####################
 
 class VAE(TemplateIterator):
+
     def __init__(self, config, root, model, *args, **kwargs):
         super().__init__(config, root, model, *args, **kwargs)
         self.logger = get_logger("Iterator")
@@ -121,22 +122,3 @@ class VAE(TemplateIterator):
         state = torch.load(checkpoint_path)
         self.vae.load_state_dict(state["vae"])
         self.optimizer.load_state_dict(state["optimizer"])
-
-    '''# would need: global_step, num_steps, reduce_lr, learning_rate, D_lr_factor, [optimizer_lin, optimizer_G, optimizer_D] or optimizer 
-    def update_learning_rate(self):
-        step = torch.tensor(self.get_global_step(), dtype = torch.float)
-        num_step = self.config["num_steps"]
-        current_ratio = step/self.config["num_steps"]
-        reduce_lr_ratio = self.config["optimization"]["reduce_lr"]
-        if current_ratio >= self.config["optimization"]["reduce_lr"]:
-            def amplitide_lr(step):
-                delta = (1-reduce_lr_ratio)*num_step
-                return (num_step-step)/delta
-            amp = amplitide_lr(step)
-            lr = self.config["learning_rate"] * amp
-            for g in self.optimizer.param_groups:
-                g['lr'] = lr
-            return lr, amp
-        else:
-            return self.config["learning_rate"], 1
-    '''

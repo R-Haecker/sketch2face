@@ -1,0 +1,77 @@
+# info for run
+code_root: null
+# log to weights and biases
+integrations:
+  wandb:
+    active: False
+    project: "vae_sketch2face"
+
+## Dataloader info ##
+datasets:
+  train: data.data_loader.dataset.DatasetTrain
+  validation: data.data_loader.dataset.DatasetEval
+# info for data loader
+data:
+  # path to dataset used in the data loader
+  data_root_face: /export/home/rhaecker/documents/sketch2face/data/data_sets/img_align_celeba/
+  data_root_sketch: /export/home/rhaecker/documents/sketch2face/data/data_sets/full_numpy_bitmap_face.npy
+  # shuffel dataset indices
+  shuffle: True
+  # shuffel dataset indices
+  validation_split: 0.1
+  # info for transformation of only face data
+  transform:
+    resolution: 64
+    mirrow: True
+    crop_offset: 10
+
+iterator: iterator.vae.VAE
+model: model.vae.VAE_config
+# choose model and data type
+# either "face" or "sketch"
+model_type: "sketch"
+random_seed: 10
+# optinal Meta Info
+explanation: "VAE which reduces the learning rate, predicts sigma, latent dimension 128 and no extra convolutions on sketches."
+# log level of logger
+debug_log_level: False
+
+## Iterator info ##
+# specify the batchsize for training
+batch_size: 16
+# specify the length of training
+# in either "num_epochs" or "num_steps" 
+num_steps: 5000
+#num_epochs: 10
+
+optimization:
+  # reduce lr linearly after 70% of training up to zero at the end of training
+  reduce_lr: 0.7
+losses:
+  reconstruction_loss: "L2"
+  # either: "L1", "L2" or "MSE", "BCE", "wasserstein" 
+
+## Model info ##
+learning_rate: 0.0001
+# dimension of the latent representation 
+latent_dim: 128
+# normalize over the batch
+batch_norm: True
+# how frequent the model is saved
+log_freq: 100
+
+variational:
+  # should the VAE encoder predict the standard deviation
+  sigma: True
+  # numb. of linear layers in the bottleneck
+  num_latent_layer: 0
+
+# Conv parameters
+conv:
+  # numb. of channels after first convolution 
+  n_channel_start: 32
+  # numb. of channels double after every convolution until it reaches "n_channel_max"
+  n_channel_max: 128
+  # numb. of additional convolutions in every convolutional block which preserve the spatial dimension
+  sketch_extra_conv: 0
+  face_extra_conv: 0
