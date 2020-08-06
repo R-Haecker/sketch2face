@@ -13,35 +13,43 @@ datasets:
 # info for data loader
 data:
   # path to datasets used in the data loader
-  data_root_face: /export/home/rhaecker/documents/sketch2face/data/data_sets/img_align_celeba/
-  data_root_sketch: /export/home/rhaecker/documents/sketch2face/data/data_sets/full_numpy_bitmap_face.npy
+  #data_root_face: /export/home/rhaecker/documents/sketch2face/data/data_sets/img_align_celeba/
+  #data_root_sketch: /export/home/rhaecker/documents/sketch2face/data/data_sets/full_numpy_bitmap_face.npy
+  data_root_face: /home/haecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/img_align_celeba/
+  data_root_sketch: /home/haecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/full_numpy_bitmap_face.npy
   # shuffel dataset indices
   shuffle: True
-  # shuffel dataset indices
+  # 10% of the whole dataset will be the validation dataset
   validation_split: 0.1
-  # info for transformation of only face data
+  # info for transformation of data
   transform:
     resolution: 64
     mirrow: True
     crop_offset: 5
 
 # optinal Meta Info
-explanation: "First cycle gan with accuracy."
+explanation: "Cycle gan."
 # log level of logger
 debug_log_level: False
 
 # Iterator info
-iterator: iterator.cycle_gan_iterator.Iterator
-model: model.cycle_gan.CycleGAN_Model
-
+iterator: iterator.cycle_gan.CycleGAN
+model: model.cycle_gan.Cycle_GAN
+# the model_type for a cycle gan can only be sketch2face
 model_type: "sketch2face"
-# face ; sketch
 
+## Iterator info ##
+# specify the batchsize for training
 batch_size: 10
-num_epochs: 10
+# specify the length of training
+# in either "num_epochs" or "num_steps" 
+num_steps: 5000
+#num_epochs: 10
 
 optimization:
+  # reduce lr linearly after 70% of training up to zero at the end of training
   reduce_lr: 0.7
+  # update the discriminator onyl if the 
   D_accuracy: [0.67,0.67]
   D_lr_factor: 0.1
 

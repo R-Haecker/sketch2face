@@ -17,9 +17,9 @@ data:
   data_root_sketch: /export/home/rhaecker/documents/sketch2face/data/data_sets/full_numpy_bitmap_face.npy
   # shuffel dataset indices
   shuffle: True
-  # shuffel dataset indices
+  # 10% of the whole dataset will be the validation dataset
   validation_split: 0.1
-  # info for transformation of only face data
+  # info for transformation of data
   transform:
     resolution: 64
     mirrow: True

@@ -1,7 +1,8 @@
 import torch
 from torch import nn
-from model.vae import VAE_Model_Decoder
-from model.discriminator import Discriminator_sketch, Discriminator_face
+import torch.optim as optim
+from model.vae import VAE_Decoder
+from model.discriminator import Discriminator_sketch, Discriminator_face, WGAN_Discriminator
 
 from edflow import get_logger
 
@@ -12,42 +13,37 @@ from model.util import (
     set_random_state
 )
 
-class DCGAN_Model(nn.Module):
+class DCGAN(nn.Module):
     def __init__(self, config):
-        super(DCGAN_Model, self).__init__()
+        super(DCGAN, self).__init__()
         self.config = config
         self.logger = get_logger("DCGAN")
-        self.sketch = True if "sketch" in self.config["model_type"] else False
-        self.tensor_shapes_enc = get_tensor_shapes(config, sketch = self.sketch, encoder = True)
-        self.tensor_shapes_dec = get_tensor_shapes(config, sketch = self.sketch, encoder = False)
-        self.logger.info("tensor shapes decoder input: " + str(self.tensor_shapes_dec))
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.variational = bool("variational" in self.config) 
-        self.sigma       = bool(self.variational and "sigma" in self.config["variational"] and self.config["variational"]["sigma"])    
-        if "dropout" in self.config:
-            self.dec_drop_rate = self.config["dropout"]['dec_rate'] if 'dec_rate' in self.config["dropout"] else None
-            self.disc_drop_rate = self.config["dropout"]['disc_rate'] if ('disc_rate' in self.config["dropout"]) else 0  
-            self.logger.debug("Dropout oused in discriminator with disc_rate = {}".format(self.disc_drop_rate))
+        assert bool("sketch" in self.config["model_type"]) != bool("face" in self.config["model_type"]), "The model_type for this DCGAN model can only be 'sketch' or 'face' but not 'sketch2face'."
+        self.sketch = True if "sketch" in self.config["model_type"] else False
         self.wasserstein = True if self.config["losses"]['adversarial_loss'] == 'wasserstein' else False
 
-        key_dec = "sketch_extra_conv" if self.sketch else "face_extra_conv"
-        self.dec_extra_conv = self.config["conv"][key_dec] if key_dec in self.config["conv"] else 0
+        latent_dim = self.config['conv']['n_channel_max']
+        min_channels = self.config['conv']['n_channel_start']
+        sketch_shape = [32, 1]
+        face_shape = [self.config['data']['transform']['resolution'], 3]
+        num_extra_conv_sketch = self.config['conv']['sketch_extra_conv']
+        num_extra_conv_face = self.config['conv']['face_extra_conv']
+        BlockActivation = nn.ReLU()
+        FinalActivation = nn.Tanh()
+        batch_norm_dec = self.config['batch_norm']
+        drop_rate_dec = self.config['dropout']['dec_rate']
+        drop_rate_disc = self.config['dropout']['disc_rate']
+        bias_dec = self.config['bias']['dec']
+
+        shapes = sketch_shape if "sketch" in self.config["model_type"] else face_shape
+        num_extra_conv = num_extra_conv_sketch if "sketch" in self.config["model_type"] else num_extra_conv_face
+        self.netG = VAE_Decoder(latent_dim, min_channels, 
+                                    *shapes, num_extra_conv, 
+                                    BlockActivation, FinalActivation,
+                                    batch_norm_dec, drop_rate_dec, bias_dec)
         
-        if self.variational:
-            if self.sigma:
-                self.latent_dim = int(self.tensor_shapes_enc[-1][0]/2)
-                self.logger.debug("decoder shapes: " + str(self.tensor_shapes_dec))
-            else:
-                self.latent_dim = self.tensor_shapes_enc[-1][0]
-        else:
-            self.latent_dim = self.config["conv"]["n_channel_max"]
-        self.logger.info("latnet dim: " + str(self.latent_dim))
-
-        self.act_func = get_act_func(config, self.logger)
-        dec_n_blocks = len(self.tensor_shapes_dec)-1 if self.dec_extra_conv == 0 else len(self.tensor_shapes_dec)-2 
-
-        self.netG = VAE_Model_Decoder(config = config, act_func = self.act_func, tensor_shapes = self.tensor_shapes_dec, n_blocks = dec_n_blocks, variaional = self.variational, sigma = self.sigma, latent_dim = self.latent_dim, extra_conv = self.dec_extra_conv, drop_rate = self.dec_drop_rate)
-        self.netD = Discriminator_sketch(droprate=self.disc_drop_rate, wasserstein=self.wasserstein) if self.sketch else Discriminator_face(droprate=self.disc_drop_rate, wasserstein=self.wasserstein)
+        self.netD = Discriminator_sketch(droprate=drop_rate_disc, wasserstein=self.wasserstein) if self.sketch else Discriminator_face(droprate=drop_rate_disc, wasserstein=self.wasserstein)
 
     def forward(self, x):
         return self.netG(x)

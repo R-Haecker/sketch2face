@@ -1,6 +1,5 @@
 import os
 import numpy as np
-import random
 
 import torch
 from edflow import TemplateIterator, get_logger
@@ -26,6 +25,7 @@ from iterator.util import (
 class CycleGAN(TemplateIterator):
     def __init__(self, config, root, model, *args, **kwargs):
         super().__init__(config, root, model, *args, **kwargs)
+        assert config["model"] == "model.cycle_gan.Cycle_GAN", "This CycleGAN iterator only works with with the Cycle_GAN model."
         self.logger = get_logger("Iterator")
         # export to the right gpu if specified in the config
         self.device = set_gpu(config)
