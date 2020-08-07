@@ -34,6 +34,7 @@ class Dataset(DatasetMixin):
         # Load parameters from config
         self.set_image_transforms()
         self.set_random_state()
+        self.no_encoder = self.config["model"] in ["model.gan.DCGAN", "model.gan.WGAN"]
         
         # Yet a bit sloppy but ok
         self.sketch_data = self.load_sketch_data()
@@ -160,7 +161,7 @@ class Dataset(DatasetMixin):
             type_idx = self.indices[data_type][int(idx)]
             # Load image
             example["image_{}".format(data_type)] = self.load_image(type_idx, data_type)
-        if "no_encoder" in self.config['data'] and self.config['data']["no_encoder"]:
+        if self.no_encoder:
             example["random_sample"] = np.random.normal(size=self.config["conv"]["n_channel_max"])
         # Return example dictionary
         return example

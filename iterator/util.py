@@ -2,13 +2,11 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
+from torch import autograd
 from torch.autograd import Variable
+from models import ID_module
 
 from edflow.util import walk
-
-class ID_module(nn.Module):
-    def forward(self, input):
-        return input
 
 def get_loss_funct(loss_function):
     '''Get the loss function specified in the config.'''
@@ -148,7 +146,19 @@ def accuracy_discriminator(outputs_real, outputs_fake):
 
         return right_count/total_tests
 
-# TODO make sure all update lr work in interators
-# set random state everywhere
-# set_requires_grad everywhere
-# set_gpu everywhere
+def load_pretrained_vaes(config, model):
+    '''Check if pretrained models are given in the config and load them.'''
+    log_string = "No models loaded"
+    if "load_models" in config and config["load_models"] != None and "sketch_path" and "face_path" in config["load_models"] and config["load_models"]["sketch_path"] != None and config["load_models"]["face_path"] != None:
+        # load state dict of components of the VAE's
+        sketch_state = torch.load(config["load_models"]["sketch_path"])
+        face_state = torch.load(config["load_models"]["face_path"])
+        model.netG_A.enc.load_state_dict(sketch_state['encoder'])
+        model.netG_A.dec.load_state_dict(face_state['decoder'])
+        model.netD_A.load_state_dict(sketch_state['discriminator'])
+        model.netG_B.enc.load_state_dict(face_state['encoder'])
+        model.netG_B.dec.load_state_dict(sketch_state['decoder'])
+        model.netD_B.load_state_dict(face_state['discriminator'])
+        log_string = "Sketch VAE loaded from {}\nFace VAE loaded from {}".format(
+            config["load_models"]["sketch_path"], config["load_models"]["face_path"])
+    return model, log_string

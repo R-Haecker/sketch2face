@@ -15,13 +15,14 @@ from iterator.util import (
     convert_logs2numpy,
     accuracy_discriminator
 )
-##########################
+########################
 ###  DCGAN Iterator  ###
-##########################
+########################
 
 class DCGAN(TemplateIterator):
     def __init__(self, config, root, model, *args, **kwargs):
         super().__init__(config, root, model, *args, **kwargs)
+        assert config["model"] == "model.gan.DCGAN", "This iterator only supports the model: model.gan.DCGAN"
         self.logger = get_logger("Iterator")
         # export to the right gpu if specified in the config
         self.device = set_gpu(config)
@@ -40,36 +41,38 @@ class DCGAN(TemplateIterator):
 
         self.real_labels = torch.ones(self.batch_size, device=self.device)
         self.fake_labels = torch.zeros(self.batch_size, device=self.device)
-
+        self.wasserstein = bool(self.config["losses"]['adversarial_loss'] == 'wasserstein')
+        
     def criterion(self, real_images, model_output):
         """This function returns a dictionary with all neccesary losses for the model."""
         losses = {}
         adversarial_criterion = get_loss_funct(self.config["losses"]["adversarial_loss"])
 
         losses["generator"] = {}
-        if self.config["losses"]["adversarial_loss"] != "wasserstein":
-            losses["generator"]["adv"] = torch.mean(adversarial_criterion(self.model.netD(model_output).view(-1), self.real_labels))
-        else:
+        if self.wasserstein:
             losses["generator"]["adv"] = -torch.mean(self.model.netD(model_output).view(-1))
+        else:
+            losses["generator"]["adv"] = torch.mean(adversarial_criterion(self.model.netD(model_output).view(-1), self.real_labels))
 
         netD_real_outputs = self.model.netD(real_images.detach()).view(-1)
         netD_fake_outputs = self.model.netD(model_output.detach()).view(-1)
         losses["discriminator"] = {}
         losses["discriminator"]["outputs_fake"] = netD_fake_outputs.detach().cpu().numpy()
         losses["discriminator"]["outputs_real"] = netD_real_outputs.detach().cpu().numpy()
-        if self.config["losses"]["adversarial_loss"] != "wasserstein":
-            losses["discriminator"]["fake"] = adversarial_criterion(netD_fake_outputs, self.fake_labels)
-            losses["discriminator"]["real"] = adversarial_criterion(netD_real_outputs, self.real_labels)
-        else:
+        if self.wasserstein:
             losses["discriminator"]["fake"] = torch.mean(netD_fake_outputs)
             losses["discriminator"]["real"] = torch.mean(netD_real_outputs)
-        losses["discriminator"]["total"] = losses["discriminator"]["fake"] - losses["discriminator"]["real"]
+            losses["discriminator"]["total"] = losses["discriminator"]["fake"] - losses["discriminator"]["real"]
+        else:
+            losses["discriminator"]["fake"] = adversarial_criterion(netD_fake_outputs, self.fake_labels)
+            losses["discriminator"]["real"] = adversarial_criterion(netD_real_outputs, self.real_labels)
+            losses["discriminator"]["total"] = losses["discriminator"]["fake"] + losses["discriminator"]["real"]
+            losses["discriminator"]["accuracy"] = accuracy_discriminator(losses["discriminator"]["outputs_real"], losses["discriminator"]["outputs_fake"])
 
         self.logger.debug('netD_real_outputs: {}'.format(netD_real_outputs))
         self.logger.debug('netD_fake_outputs: {}'.format(netD_fake_outputs))
         self.logger.debug('losses["generator"]["adv"]: {}'.format(losses["generator"]["adv"]))
 
-        losses["discriminator"]["accuracy"] = accuracy_discriminator(losses["discriminator"]["outputs_real"], losses["discriminator"]["outputs_fake"])
         losses["discriminator"]["outputs_real"] = np.mean(losses["discriminator"]["outputs_real"])
         losses["discriminator"]["outputs_fake"] = np.mean(losses["discriminator"]["outputs_fake"])
         return losses
@@ -86,7 +89,6 @@ class DCGAN(TemplateIterator):
         self.logger.debug("model_input.shape: {}".format(model_input[0].shape))
         model_output = self.model(model_input)
         self.logger.debug("model_output.shape: {}".format(model_output[0].shape))
-        self.wasserstein = True if self.config["losses"]['adversarial_loss'] == 'wasserstein' else False
         # create all losses
         losses = self.criterion(real_images, model_output)
 
@@ -179,37 +181,3 @@ class DCGAN(TemplateIterator):
         self.model.netD.load_state_dict(state['discriminator'])
         self.optimizer_G.load_state_dict(state['optimizer_G'])
         self.optimizer_D.load_state_dict(state['optimizer_D'])
-
-    '''
-    def update_learning_rate(self):
-        step = torch.tensor(self.get_global_step(), dtype = torch.float)
-        num_step = self.config["num_steps"]
-        current_ratio = step/self.config["num_steps"]
-        reduce_lr_ratio = self.config["optimization"]["reduce_lr"]
-        if current_ratio >= self.config["optimization"]["reduce_lr"]:
-            def amplitide_lr(step):
-                delta = (1-reduce_lr_ratio)*num_step
-                return (num_step-step)/delta
-            amp = amplitide_lr(step)
-            lr = self.config["learning_rate"] * amp
-            
-            for optimizer in [self.optimizer_G, self.optimizer_D]:  
-                for g in optimizer.param_groups:
-                    g['lr'] = lr
-                return lr, amp
-        else:
-            return self.config["learning_rate"], 1
-
-    #needed parameters: batch_size, outputs_real, outputs_fake
-    def accuracy_discriminator(self, losses):
-        with torch.no_grad():
-            right_count = 0
-
-            total_tests = 2*self.config["batch_size"]
-            for i in range(self.config["batch_size"]):
-                if losses["discriminator"]["outputs_real"][i] >  0.5: right_count += 1 
-                if losses["discriminator"]["outputs_fake"][i] <= 0.5: right_count += 1
-                
-            return right_count/total_tests
-
-    '''

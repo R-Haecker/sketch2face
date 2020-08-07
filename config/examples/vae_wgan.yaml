@@ -4,15 +4,15 @@ code_root: null
 integrations:
   wandb:
     active: False
-    project: "sketch2face"
+    project: "sketch_or_face"
 
-# Dataloader
+## Dataloader info ##
 datasets:
   train: data.data_loader.dataset.DatasetTrain
   validation: data.data_loader.dataset.DatasetEval
 # info for data loader
 data:
-  # path to datasets used in the data loader
+  # path to dataset used in the data loader
   #data_root_face: /export/home/rhaecker/documents/sketch2face/data/data_sets/img_align_celeba/
   #data_root_sketch: /export/home/rhaecker/documents/sketch2face/data/data_sets/full_numpy_bitmap_face.npy
   data_root_face: /home/haecker/documents/src/20_ss/deep_vision/sketch2face/data/data_sets/img_align_celeba/
@@ -25,21 +25,16 @@ data:
   transform:
     resolution: 64
     mirrow: True
-    crop_offset: 5
+    crop_offset: 10
 
-# uncomment and specify paths to load pretrained models  
-load_models:
-  # absolute path to the weights checkpoint for the models, similar like: <path to root>/logs/<run name>/train/checkpoints/model-<last step>.ckpt
-  #sketch_path: 
-  #face_path: 
-
-iterator: iterator.cycle_wgan.Cycle_WGAN
-model: model.cycle_gan.Cycle_WGAN
-# the model_type for a cycle gan can only be "sketch2face"
-model_type: "sketch2face"
+iterator: iterator.vae_wgan.VAE_WGAN
+model: model.vae_gan.VAE_WGAN
+# choose model and data type
+# either "face" or "sketch"
+model_type: "sketch"
 random_seed: 10
 # optional Meta Info
-explanation: "Cycle wasserstein gan updating discriminators only below 67% accuracy threshold, reducing learning_rate during training and one linear latent layer."
+explanation: "VAE wasserstein GAN which reduces the learning rate, predicts sigma, latent dimension 128 and no extra convolutions on sketches."
 # log level of logger
 debug_log_level: False
 
@@ -54,22 +49,17 @@ num_steps: 5000
 optimization:
   # reduce lr linearly after 70% of training up to zero at the end of training
   reduce_lr: 0.7
-  # update the discriminator only if the accuracy of the sketch disciminator and face discriminator is below the first 67% element and second element 67% 
-  D_accuracy: [0.67,0.67]
   # change the learning rate of the discriminator by this factor in respect roiginal lr of the generator
   D_lr_factor: 1
-  # bool if only the latent layers will be updated during training, if True: config["variational"]["num_latent_layer"] should be bigger than 0
-  only_latent_layer: True
-
+  
 losses:
-  # either: "L1", "L2" or "MSE", "BCE"
+  # either: "L1", "L2" or "MSE", "BCE", "wasserstein"
   reconstruction_loss: "L2"
   reconstruction_weight: 10
-  # loss function applied to discriminator output
-  adversarial_loss: "BCE"
+  # no adversarial loss function in wasserstein gan 
   adversarial_weight: 1
   # the weight for the gradient penalty loss
-  gp_weight: 0
+  gp_weight: 10
   # information about the Kullback Leibner Divergence
   kld:
     weight: 1
@@ -77,8 +67,12 @@ losses:
     delay: 1000
     # ramp up the kld loss slowly after the delay within 200 steps
     slope_steps: 200
-  # the generator will only be updated every 5th step. The discriminator will be updated 5 times as much.
+  # Update the generator only every 5th training step or update the discriminator 5 times as much
   update_disc: 5
+  # use the mean of both discriminator outputs as a loss to keep the outputs positive and negative 
+  disc_output_mean_weight: 1
+  # generate images from noise and train on them as well
+  sample: False
 
 ## Model info ##
 learning_rate: 0.0001
@@ -93,14 +87,14 @@ variational:
   # should the VAE encoder predict the standard deviation
   sigma: True
   # numb. of linear layers in the bottleneck
-  num_latent_layer: 1
+  num_latent_layer: 0
 
 # Conv parameters
 conv:
   # numb. of channels after first convolution 
-  n_channel_start: 32
+  n_channel_start: 128
   # numb. of channels double after every convolution until it reaches "n_channel_max"
-  n_channel_max: 512
+  n_channel_max: 1024
   # numb. of additional convolutions in every convolutional block which preserve the spatial dimension
   sketch_extra_conv: 0
   face_extra_conv: 0

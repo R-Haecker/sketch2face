@@ -1,9 +1,8 @@
 import numpy as np
 import torch
-
 from edflow import TemplateIterator, get_logger
-
 import itertools
+
 from iterator.util import (
     set_gpu,
     set_random_state,
@@ -24,6 +23,7 @@ class VAE_GAN(TemplateIterator):
     def __init__(self, config, root, model, *args, **kwargs):
         super().__init__(config, root, model, *args, **kwargs)
         self.logger = get_logger("Iterator")
+        assert config["model"] in ["model.vae_gan.VAE_GAN", "model.vae_gan.VAE_WGAN"], "This Iterator only supports the VAE GAN models: VAE_GAN and VAE_WGAN."
         # export to the right gpu if specified in the config
         self.device = set_gpu(config)
         self.logger.debug(f"Model will pushed to the device: {self.device}")
@@ -56,7 +56,7 @@ class VAE_GAN(TemplateIterator):
         kld_weight = self.config["losses"]["kld"]["weight"] if "kld" in self.config["losses"] else 0
         kld_delay = self.config["losses"]['kld']["delay"] if "delay" in self.config["losses"]['kld'] else 0
         kld_slope_steps = self.config["losses"]['kld']["slope_steps"] if "slope_steps" in self.config["losses"]['kld'] else 0
-        losses["generator"]["kld_weight"] = kld_update_weight(weight=kld_weight, steps=self.get_global_steps(), delay=kld_delay, slope_steps=kld_slope_steps)
+        losses["generator"]["kld_weight"] = kld_update_weight(weight=kld_weight, steps=self.get_global_step(), delay=kld_delay, slope_steps=kld_slope_steps)
 
         losses["generator"]["rec"] = rec_weight * torch.mean(reconstruction_criterion(model_output, model_input))
         losses["generator"]["adv"] = adv_weight * torch.mean(adversarial_criterion(self.model.netD(model_output).view(-1), self.real_labels))
@@ -198,70 +198,3 @@ class VAE_GAN(TemplateIterator):
         self.model.netD.load_state_dict(state['discriminator'])
         self.optimizer_G.load_state_dict(state['optimizer_G'])
         self.optimizer_D.load_state_dict(state['optimizer_D'])
-
-    '''
-    def _gradient_penalty(self, real_data, generated_data):
-        batch_size = real_data.size()[0]
-
-        # Calculate interpolation
-        alpha = torch.rand(batch_size, 1, 1, 1)
-        alpha = alpha.expand_as(real_data).to(self.device)
-        interpolated = alpha * real_data + (1 - alpha) * generated_data
-        interpolated = Variable(interpolated, requires_grad=True).to(self.device)
-        #if self.use_cuda:
-        #    interpolated = interpolated.cuda()
-
-        # Calculate probability of interpolated examples
-        prob_interpolated = self.model.netD(interpolated)
-
-        # Calculate gradients of probabilities with respect to examples
-        gradients = torch_grad(outputs=prob_interpolated, inputs=interpolated,
-                               grad_outputs=torch.ones(prob_interpolated.size()).to(self.device),
-                               create_graph=True, retain_graph=True)[0]
-
-        # Gradients have shape (batch_size, num_channels, img_width, img_height),
-        # so flatten to easily take norm per example in batch
-        gradients = gradients.view(batch_size, -1)
-
-        # Derivatives of the gradient close to 0 can cause problems because of
-        # the square root, so manually calculate norm and add epsilon
-        gradients_norm = torch.sqrt(torch.sum(gradients ** 2, dim=1) + 1e-12)
-
-        # Return gradient penalty
-        return ((gradients_norm - 1) ** 2).mean()
-
-    # would need: global_step, num_steps, reduce_lr, learning_rate, D_lr_factor, [optimizer_lin, optimizer_G, optimizer_D] or optimizer or [optimizer_G, optimizer_D]
-    def update_learning_rate(self):
-        step = torch.tensor(self.get_global_step(), dtype = torch.float)
-        num_step = self.config["num_steps"]
-        current_ratio = step/self.config["num_steps"]
-        reduce_lr_ratio = self.config["optimization"]["reduce_lr"]
-        if current_ratio >= self.config["optimization"]["reduce_lr"]:
-            def amplitide_lr(step):
-                delta = (1-reduce_lr_ratio)*num_step
-                return (num_step-step)/delta
-            amp = amplitide_lr(step)
-            lr = self.config["learning_rate"] * amp
-            
-            for optimizer in [self.optimizer_G, self.optimizer_D]:  
-                for g in optimizer.param_groups:
-                    g['lr'] = lr
-                return lr, amp
-        else:
-            return self.config["learning_rate"], 1
-    
-    def accuracy_discriminator(self, losses):
-        '''
-    # Return the accuracy of the discriminator predictions.
-    '''
-        with torch.no_grad():
-            right_count = 0
-
-            total_tests = 2*self.config["batch_size"]
-            for i in range(self.config["batch_size"]):
-                if losses["discriminator"]["outputs_real"][i] >  0.5: right_count += 1 
-                if losses["discriminator"]["outputs_fake"][i] <= 0.5: right_count += 1
-
-            return right_count/total_tests
-
-    '''

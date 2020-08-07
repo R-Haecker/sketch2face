@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import numpy as np
+from model.module import ID_module
 
 class Discriminator_sketch(nn.Module):
     def __init__(self, nc=1, ndf=32, droprate=0, wasserstein=False):
@@ -24,7 +25,7 @@ class Discriminator_sketch(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # state size. (ndf*8) x 4 x 4
             nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=False),
-            nn.Sigmoid() if not wasserstein else nn.Identity()
+            nn.Sigmoid() if not wasserstein else ID_module()
         )
 
     def forward(self, input):
@@ -56,7 +57,7 @@ class Discriminator_face(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # state size. (ndf*8) x 4 x 4
             nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=False),
-            nn.Sigmoid() if not wasserstein else nn.Identity()
+            nn.Sigmoid() if not wasserstein else ID_module()
         )
 
     def forward(self, input):
@@ -114,10 +115,10 @@ class WGAN_Discriminator(torch.nn.Module):
         x = self.main_module(x)
         return x.view(-1, 1024*4*4)
 
-class Discriminator_WGAN_sketch(WGAN_Discriminator):
+class WGAN_Discriminator_sketch(WGAN_Discriminator):
     def __init__(self):
         super().__init__(input_channels = 1, input_resolution = 32)
 
-class Discriminator_WGAN_face(WGAN_Discriminator):
+class WGAN_Discriminator_face(WGAN_Discriminator):
     def __init__(self, input_resolution):
         super().__init__(input_channels = 3, input_resolution = input_resolution)

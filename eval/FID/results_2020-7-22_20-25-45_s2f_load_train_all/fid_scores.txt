@@ -1,4 +1,0 @@
-FID scores of run2020-07-22T12-55-18_s2f_load_train_all over 10 images 
-sketch FID Score = 150.3431704318934
-face FID Score = 207.32190556735728
-mean FID Score = 178.83253799962534

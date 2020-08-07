@@ -1,4 +1,3 @@
-import os
 import numpy as np
 
 import torch
@@ -15,17 +14,19 @@ from iterator.util import (
     calculate_gradient_penalty,
     update_learning_rate,
     set_random_state,
-    kld_update_weight
+    kld_update_weight,
+    load_pretrained_vaes
 )
 
-###########################
-###  CycleGAN Iterator  ###
-###########################
+############################
+###  Cycle GAN Iterator  ###
+############################
 
-class CycleGAN(TemplateIterator):
+class Cycle_GAN(TemplateIterator):
     def __init__(self, config, root, model, *args, **kwargs):
         super().__init__(config, root, model, *args, **kwargs)
         assert config["model"] == "model.cycle_gan.Cycle_GAN", "This CycleGAN iterator only works with with the Cycle_GAN model."
+        assert config["losses"]["adversarial_loss"] != "wasserstein", "This CycleGAN does not support an adversarial wasserstein loss"
         self.logger = get_logger("Iterator")
         # export to the right gpu if specified in the config
         self.device = set_gpu(config)
@@ -38,9 +39,10 @@ class CycleGAN(TemplateIterator):
         # Log the architecture of the model
         self.logger.debug(f"{model}")
         self.model = model.to(self.device)
-
-        self.load_pretrained_vaes()
-
+        # load pretrained models if specified in the config
+        self.model, log_string = load_pretrained_vaes(config=self.config, model=self.model)
+        self.logger.debug(log_string)
+        
         self.optimizer_G = torch.optim.Adam(itertools.chain(self.model.netG_A.parameters(), self.model.netG_B.parameters()), lr=self.config["learning_rate"])  # betas=(opt.beta1, 0.999))
         D_lr_factor = self.config["optimization"]["D_lr_factor"] if "D_lr_factor" in config["optimization"] else 1
         self.optimizer_D_A = torch.optim.Adam(self.model.netD_A.parameters(), lr=D_lr_factor * self.config["learning_rate"])  # betas=(opt.beta1, 0.999))
@@ -53,23 +55,6 @@ class CycleGAN(TemplateIterator):
             self.logger.debug("Only latent layers are optimized\nNumber of latent layers: {}".format(self.config['variational']['num_latent_layer']))
         self.real_labels = torch.ones(self.batch_size, device=self.device)
         self.fake_labels = torch.zeros(self.batch_size, device=self.device)
-
-    def load_pretrained_vaes(self):
-        log_string = "No models loaded"
-        if "load_models" in self.config:
-            if "sketch_path" in self.config["load_models"] and "face_path" in self.config["load_models"]:
-                # load state dict of components of the VAE's
-                sketch_state = torch.load(self.config["load_models"]["sketch_path"])
-                face_state = torch.load(self.config["load_models"]["face_path"])
-
-                self.model.netG_A.enc.load_state_dict(sketch_state['encoder'])
-                self.model.netG_A.dec.load_state_dict(face_state['decoder'])
-                self.model.netD_A.load_state_dict(sketch_state['discriminator'])
-                self.model.netG_B.enc.load_state_dict(face_state['encoder'])
-                self.model.netG_B.dec.load_state_dict(sketch_state['decoder'])
-                self.model.netD_B.load_state_dict(face_state['discriminator'])
-                log_string = "Sketch VAE loaded from {}\nFace VAE loaded from {}".format(self.config["load_models"]["sketch_path"], self.config["load_models"]["face_path"])
-        self.logger.debug(log_string)
 
     def criterion(self):
         """This function returns a dictionary with all neccesary losses for the model."""
@@ -292,7 +277,7 @@ class CycleGAN(TemplateIterator):
         state['sketch_discriminator'] = self.model.netD_A.state_dict()
         state['face_encoder'] = self.model.netG_B.enc.state_dict()
         state['face_decoder'] = self.model.netG_A.dec.state_dict()
-        state['face_dicriminator'] = self.model.netD_B.state_dict()
+        state['face_discriminator'] = self.model.netD_B.state_dict()
         state['optimizer_G'] = self.optimizer_G.state_dict()
         state['optimizer_D_A'] = self.optimizer_D_A.state_dict()
         state['optimizer_D_B'] = self.optimizer_D_B.state_dict()
@@ -325,90 +310,3 @@ class CycleGAN(TemplateIterator):
             self.model.netG_B.latent_layer.load_state_dict(state['face_latent_layer'])
             if self.only_latent_layer:
                 self.optimizer_Lin.load_state_dict(state['optimizer_Lin'])
-
-    '''
-    # needed parameters: batch_size, sketch: outputs_real, outputs_fake; face: outputs_real, outputs_fake 
-    def accuracy_discriminator(self, losses):
-        # calculate the accuracy of the discriminators
-        with torch.no_grad():
-            right_count_A = 0
-            right_count_B = 0
-
-            total_tests = 2 * self.config["batch_size"]
-            for i in range(self.config["batch_size"]):
-                if losses["discriminator_sketch"]["outputs_real"][i] >  0.5: right_count_A += 1 
-                if losses["discriminator_sketch"]["outputs_fake"][i] <= 0.5: right_count_A += 1
-                
-                if losses["discriminator_face"]["outputs_real"][i] >  0.5: right_count_B += 1 
-                if losses["discriminator_face"]["outputs_fake"][i] <= 0.5: right_count_B += 1
-                
-            return right_count_A/total_tests, right_count_B/total_tests
-
-    def _gradient_penalty(self, discriminator, real_data, generated_data):
-        batch_size = real_data.size()[0]
-
-        # Calculate interpolation
-        alpha = torch.rand(batch_size, 1, 1, 1)
-        alpha = alpha.expand_as(real_data).to(self.device)
-        interpolated = alpha * real_data + (1 - alpha) * generated_data
-        interpolated = Variable(interpolated, requires_grad=True).to(self.device)
-        # if self.use_cuda:
-        #    interpolated = interpolated.cuda()
-
-        # Calculate probability of interpolated examples
-        prob_interpolated = discriminator(interpolated)
-
-        # Calculate gradients of probabilities with respect to examples
-        gradients = torch_grad(outputs=prob_interpolated, inputs=interpolated,
-                               grad_outputs=torch.ones(prob_interpolated.size()).to(self.device),
-                               create_graph=True, retain_graph=True)[0]
-
-        # Gradients have shape (batch_size, num_channels, img_width, img_height),
-        # so flatten to easily take norm per example in batch
-        gradients = gradients.view(batch_size, -1)
-
-        # Derivatives of the gradient close to 0 can cause problems because of
-        # the square root, so manually calculate norm and add epsilon
-        gradients_norm = torch.sqrt(torch.sum(gradients ** 2, dim=1) + 1e-12)
-
-        # Return gradient penalty
-        return ((gradients_norm - 1) ** 2).mean()
-
-    def update_learning_rate(self):
-        # update learning rate does not take "D_lr_factor" into account
-        step = torch.tensor(self.get_global_step(), dtype=torch.float)
-        num_step = self.config["num_steps"]
-        current_ratio = step/self.config["num_steps"]
-        reduce_lr_ratio = self.config["optimization"]["reduce_lr"]
-        if current_ratio >= self.config["optimization"]["reduce_lr"]:
-            def amplitide_lr(step):
-                delta = (1-reduce_lr_ratio)*num_step
-                return (num_step-step)/delta
-            amp = amplitide_lr(step)
-            lr = self.config["learning_rate"] * amp
-
-            # Update the learning rates
-            for g in self.optimizer_G.param_groups:
-                g['lr'] = lr
-
-            D_lr_factor = self.config["optimization"]["D_lr_factor"] if "D_lr_factor" in self.config["optimization"] else 1
-            for optimizer in [self.optimizer_D_A, self.optimizer_D_B]:
-                for g in optimizer.param_groups:
-                    g['lr'] = lr*D_lr_factor
-            return lr, amp
-        else:
-            return self.config["learning_rate"], 1
-
-    def set_random_state(self):
-        np.random.seed(self.config["random_seed"])
-        torch.random.manual_seed(self.config["random_seed"])
-
-    def kld_update(self, weight, steps, delay, slope_steps):
-        output = 0
-        if steps >= delay and steps < slope_steps+delay:
-            output = weight*(1 - np.cos((steps-delay)*np.pi/slope_steps))/2
-        if steps > slope_steps+delay:
-            output = weight
-        return output
-    
-    '''

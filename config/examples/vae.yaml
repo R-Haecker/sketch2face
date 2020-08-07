@@ -31,7 +31,7 @@ model: model.vae.VAE_config
 # either "face" or "sketch"
 model_type: "sketch"
 random_seed: 10
-# optinal Meta Info
+# optional Meta Info
 explanation: "VAE which reduces the learning rate, predicts sigma, latent dimension 128 and no extra convolutions on sketches."
 # log level of logger
 debug_log_level: False
@@ -47,6 +47,7 @@ num_steps: 5000
 optimization:
   # reduce lr linearly after 70% of training up to zero at the end of training
   reduce_lr: 0.7
+# specify the loss function
 losses:
   reconstruction_loss: "L2"
   # either: "L1", "L2" or "MSE", "BCE", "wasserstein" 
@@ -75,3 +76,12 @@ conv:
   # numb. of additional convolutions in every convolutional block which preserve the spatial dimension
   sketch_extra_conv: 0
   face_extra_conv: 0
+
+# bool if the convolutions will use a bias parameters in the encoder and the decoder
+bias:
+  enc: True
+  dec: True
+# randomly set a weight to zero with the following probability for the encoder and the decoder
+dropout:
+  enc_rate: 0
+  dec_rate: 0
