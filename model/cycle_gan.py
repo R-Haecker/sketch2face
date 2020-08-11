@@ -94,7 +94,7 @@ class Cycle_GAN(nn.Module):
 class Cycle_WGAN(nn.Module):
     def __init__(self, config):
         super(Cycle_WGAN, self).__init__()
-        assert config["iterator"] == "iterator.cycle_wgan.Cycle_WGAN", "This model only works with the iterator: 'iterator.cycle_gan.Cycle_WGAN"
+        assert config["iterator"] == "iterator.cycle_wgan.Cycle_WGAN", "This model only works with the iterator: 'iterator.cycle_wgan.Cycle_WGAN"
         assert "sketch" in config["model_type"] and "face" in config["model_type"], "This model only works with model_type: 'sketch2face'"
         if "debug_log_level" in config and config["debug_log_level"]:
             LogSingleton.set_log_level("debug")

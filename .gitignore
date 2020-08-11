@@ -12,3 +12,5 @@ data/data_sets/*
 config/config_test.yaml
 Untitled.ipynb
 eval/data/*
+model/original_dcgan.py
+config/07_22/cycle_wgan_continue_full.yaml

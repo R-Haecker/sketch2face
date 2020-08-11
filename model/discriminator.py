@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 import numpy as np
-from model.module import ID_module
+from model.modules import ID_module
 
 class Discriminator_sketch(nn.Module):
     def __init__(self, nc=1, ndf=32, droprate=0, wasserstein=False):
