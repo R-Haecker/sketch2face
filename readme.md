@@ -5,8 +5,7 @@
 In our project the goal was to crate a translation between image domains. As concrete application we present a model to generate images of real faces from simple sketches using a modified Version of a Cycle GAN being based on a Variational Autoencoder.  
 by Christopher Lüken-Winkel and Richard Häcker
 
-For detailed information about the results have a look at our [report](assets/report.pdf).
-TODO upload the report to the assets folder
+For detailed information about the results have a look at our [report](assets/documents/sketch2face.pdf).
 ## Models
 You can train and configure the following models.
 - *VAE*: Variational Autoencoder
